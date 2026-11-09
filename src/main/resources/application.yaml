@@ -1,3 +1,32 @@
 spring:
   application:
-    name: ecommerce
+    name: marketplace
+  profiles:
+    default: prod
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_RUNTIME_USER}
+    password: ${DB_RUNTIME_PASSWORD}
+  sql:
+    init:
+      mode: never
+  flyway:
+    enabled: true
+    url: ${DB_URL}
+    user: ${DB_MIGRATION_USER}
+    password: ${DB_MIGRATION_PASSWORD}
+    default-schema: marketplace
+    schemas: marketplace
+    create-schemas: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    baseline-on-migrate: false
+    clean-disabled: true
+  modulith:
+    detection-strategy: explicitly-annotated
+
+marketplace:
+  dev-fixtures:
+    enabled: false
+  quick-login:
+    enabled: false
