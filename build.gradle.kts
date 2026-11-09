@@ -1,57 +1,107 @@
+import org.gradle.api.tasks.testing.Test
+
 plugins {
-	java
-	id("org.springframework.boot") version "4.1.2"
-	id("io.spring.dependency-management") version "1.1.7"
+    java
+    id("org.springframework.boot") version "3.5.16"
+    id("io.spring.dependency-management") version "1.1.7"
 }
 
 group = "com.phucle"
-version = "0.0.1-SNAPSHOT"
+version = "0.1.0-SNAPSHOT"
 
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
-	}
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
 
 repositories {
-	mavenCentral()
+    mavenCentral()
 }
 
-extra["datasourceMicrometerVersion"] = "2.3.0"
-extra["springModulithVersion"] = "2.1.1"
+val springModulithVersion = "1.4.13"
+val mapstructVersion = "1.6.3"
+val lombokVersion = "1.18.36"
+val archUnitVersion = "1.4.1"
+val jMoleculesVersion = "1.10.0"
+val testcontainersVersion = "1.20.4"
 
 dependencies {
-	implementation("org.springframework.boot:spring-boot-starter-actuator")
-	implementation("org.springframework.boot:spring-boot-starter-flyway")
-	implementation("org.springframework.boot:spring-boot-starter-security")
-	implementation("org.springframework.boot:spring-boot-starter-webmvc")
-	implementation("net.ttddyy.observation:datasource-micrometer-spring-boot")
-	implementation("org.flywaydb:flyway-database-postgresql")
-	implementation("org.springframework.modulith:spring-modulith-observability-api")
-	implementation("org.springframework.modulith:spring-modulith-starter-core")
-	compileOnly("org.projectlombok:lombok")
-	developmentOnly("org.springframework.boot:spring-boot-docker-compose")
-	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
-	runtimeOnly("org.postgresql:postgresql")
-	runtimeOnly("org.springframework.modulith:spring-modulith-observability-core")
-	runtimeOnly("org.springframework.modulith:spring-modulith-runtime")
-	annotationProcessor("org.projectlombok:lombok")
-	testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
-	testImplementation("org.springframework.boot:spring-boot-starter-security-test")
-	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
-	testImplementation("org.springframework.modulith:spring-modulith-starter-test")
-	testCompileOnly("org.projectlombok:lombok")
-	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-	testAnnotationProcessor("org.projectlombok:lombok")
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-security")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    implementation("org.springframework.modulith:spring-modulith-starter-core")
+    implementation("org.jmolecules:jmolecules-ddd:$jMoleculesVersion")
+    implementation("org.mapstruct:mapstruct:$mapstructVersion")
+
+    runtimeOnly("org.postgresql:postgresql")
+
+    compileOnly("org.projectlombok:lombok:$lombokVersion")
+    annotationProcessor("org.projectlombok:lombok:$lombokVersion")
+    annotationProcessor("org.mapstruct:mapstruct-processor:$mapstructVersion")
+    annotationProcessor("org.projectlombok:lombok-mapstruct-binding:0.2.0")
+
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.modulith:spring-modulith-starter-test")
+    testImplementation("org.assertj:assertj-core")
+    testImplementation("com.tngtech.archunit:archunit-junit5:$archUnitVersion")
+    testImplementation("org.testcontainers:junit-jupiter:$testcontainersVersion")
+    testImplementation("org.testcontainers:postgresql:$testcontainersVersion")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testCompileOnly("org.projectlombok:lombok:$lombokVersion")
+    testAnnotationProcessor("org.projectlombok:lombok:$lombokVersion")
 }
 
 dependencyManagement {
-	imports {
-		mavenBom("org.springframework.modulith:spring-modulith-bom:${property("springModulithVersion")}")
-		mavenBom("net.ttddyy.observation:datasource-micrometer-bom:${property("datasourceMicrometerVersion")}")
-	}
+    imports {
+        mavenBom("org.springframework.modulith:spring-modulith-bom:$springModulithVersion")
+    }
 }
 
-tasks.withType<Test> {
-	useJUnitPlatform()
+sourceSets {
+    create("integrationTest") {
+        java.srcDir("src/integrationTest/java")
+        resources.srcDir("src/integrationTest/resources")
+        compileClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    named("integrationTestImplementation") {
+        extendsFrom(configurations.testImplementation.get())
+    }
+    named("integrationTestRuntimeOnly") {
+        extendsFrom(configurations.testRuntimeOnly.get())
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    doLast {
+        val testCount = reports.junitXml.outputLocation.get().asFile
+            .walkTopDown()
+            .filter { it.isFile && it.name.startsWith("TEST-") && it.extension == "xml" }
+            .sumOf { report ->
+                Regex("tests=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
+            }
+        check(testCount > 0) { "${path} discovered zero tests" }
+    }
+}
+
+val integrationTest = tasks.register<Test>("integrationTest") {
+    description = "Runs isolated PostgreSQL integration-contract tests."
+    group = "verification"
+    testClassesDirs = sourceSets["integrationTest"].output.classesDirs
+    classpath = sourceSets["integrationTest"].runtimeClasspath
+    shouldRunAfter(tasks.test)
+    useJUnitPlatform()
+}
+
+tasks.named("check") {
+    dependsOn(integrationTest)
 }

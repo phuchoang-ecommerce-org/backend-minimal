@@ -41,3 +41,8 @@ out/
 
 ### Zed editor ###
 .zed/
+
+# Local runtime secrets and developer fixture hashes
+.env
+.env.*
+!.env.example

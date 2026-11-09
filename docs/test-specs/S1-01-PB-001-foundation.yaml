@@ -1,0 +1,28 @@
+scenario_id: AT-PB-001-FOUNDATION
+title: Marketplace foundation exposes a repeatable, production-safe baseline
+source_revision: "Sprint 1 Phase Inkdrop note note:TBPiZUJ7 rev 3-443f26d471de429b68ecba3af5b12dd7; docs hashes: sprint-backlog 07654645f1fa147ce4b2ec18961833858c977bb6169e6bcec27e38a1bfcd7a9d, runtime-profiles 9c31bd6465da30a98c52828071a2ed526551bdbb747a48fa50ded104600d60f8, testing 0aa07ece9795c1e2c1f93d5775a58ba1d7c529184daa6ae569a814af219f02c3"
+trace:
+  use_cases: []
+  business_rules: []
+  architecture_rules: [ARCH-01, ARCH-02, ARCH-08, ARCH-09, ARCH-10]
+level: architecture + profile + postgres
+actor: deployment operator
+preconditions: [empty disposable PostgreSQL 18 database, no committed secrets]
+input: [SPRING_PROFILES_ACTIVE=dev, SPRING_PROFILES_ACTIVE=prod, dev-fixtures flag true]
+given: [Java 21 Gradle build, Flyway V1, explicitly annotated module shells]
+when: [check runs unit, architecture, and integrationTest suites; application starts with a supported profile]
+then:
+  returned_result_or_error: [supported single profile is accepted, unknown/mixed profiles fail, prod with dev fixtures enabled fails]
+  persisted_state: [Flyway history and all marketplace tables are created exactly once]
+  forbidden_effects: [no JPA, WebFlux, Kafka, Redis, committed credentials, prod seed, or prod quick-login handler]
+fixtures: [synthetic UUID constants with distinct seller account and SellerShop identifiers; password hashes supplied only by environment]
+concurrency: not applicable
+automation:
+  test_class: [com.phucle.ecommerce.configuration.FoundationContractTest, com.phucle.ecommerce.architecture.ModuleStructureTest, com.phucle.ecommerce.persistence.MigrationMetadataTest]
+  test_method: [profileAndFixturePolicyIsProductionSafe, modulesRespectBoundaries, v1MigrationUsesOnlyMarketplaceSchema]
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --no-daemon"
+red_evidence: "Not applicable: PB-001 is bootstrap infrastructure; source tests precede its configuration and type shells. Compile, dependency, network, and zero-test failures are recorded as blockers, never behavioral RED."
+green_evidence: "Pending Phase 1 verification."
+cleanup: [dispose the dedicated PostgreSQL database/container; do not mutate append-only audit rows]
+status: READY
+open_decisions: ["Pin an approved PostgreSQL 18 image digest after a successful local Compose validation; Docker engine availability is environment-specific."]

@@ -1,9 +1,21 @@
+name: marketplace-dev
+
 services:
-  postgres:
-    image: 'postgres:18'
+  db:
+    image: postgres:18
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+      POSTGRES_DB: marketplace
+      POSTGRES_USER: marketplace_dev
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set local DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketplace_dev -d marketplace"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     ports:
-      - '5432'
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
