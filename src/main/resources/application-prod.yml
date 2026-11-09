@@ -1,0 +1,10 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+marketplace:
+  dev-fixtures:
+    enabled: false
+  quick-login:
+    enabled: false

@@ -1,0 +1,13 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+marketplace:
+  dev-fixtures:
+    enabled: ${DEV_FIXTURES_ENABLED:false}
+    member-password-hash: ${DEV_MEMBER_PASSWORD_HASH:}
+    seller-password-hash: ${DEV_SELLER_PASSWORD_HASH:}
+    admin-password-hash: ${DEV_ADMIN_PASSWORD_HASH:}
+  quick-login:
+    enabled: false
