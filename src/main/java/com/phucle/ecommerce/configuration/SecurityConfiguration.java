@@ -41,6 +41,7 @@ class SecurityConfiguration {
                                 "ROLE_DENIED", "Access is denied")))
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers("/auth/login", "/accounts", "/dev/quick-login").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/categories", "/products", "/products/{productId}").permitAll()
                         .anyRequest().denyAll())
                 .build();
     }

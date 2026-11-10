@@ -29,6 +29,8 @@ spring:
       fail-on-unknown-properties: true
 
 marketplace:
+  cursor:
+    mac-secret: ${CURSOR_MAC_SECRET:}
   dev-fixtures:
     enabled: false
   quick-login:

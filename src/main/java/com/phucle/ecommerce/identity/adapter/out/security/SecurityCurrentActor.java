@@ -8,11 +8,13 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Component
 class SecurityCurrentActor implements CurrentActor {
     @Override
-    public TrustedActor require(HttpServletRequest request) {
+    public TrustedActor require() {
         if (!(SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken token))
             throw new AuthenticationCredentialsNotFoundException("Authentication is required");
         String authority = token.getAuthorities().stream().findFirst()
@@ -21,11 +23,11 @@ class SecurityCurrentActor implements CurrentActor {
         if (!authority.startsWith("ROLE_"))
             throw new AuthenticationCredentialsNotFoundException("Operational role is required");
         String role = authority.substring("ROLE_".length());
-        Object correlation = request.getAttribute("correlationId");
-        if (correlation == null) {
-            correlation = UUID.randomUUID().toString();
-            request.setAttribute("correlationId", correlation);
-        }
+        var attributes = RequestContextHolder.getRequestAttributes();
+        HttpServletRequest request = attributes instanceof ServletRequestAttributes servlet ? servlet.getRequest() : null;
+        Object correlation = request == null ? null : request.getAttribute("correlationId");
+        if (correlation == null) correlation = UUID.randomUUID().toString();
+        if (request != null) request.setAttribute("correlationId", correlation);
         return new TrustedActor(UUID.fromString(token.getName()), role, correlation.toString());
     }
 }
