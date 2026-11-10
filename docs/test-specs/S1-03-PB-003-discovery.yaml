@@ -1,0 +1,32 @@
+scenario_id: AT-UC-01-DISCOVERY
+title: Public category and published product discovery
+source_revision: "Inkdrop note:TBPiZUJ7 rev 5-6bb24e8a05cfa0c5dabf9ff0792e112a; OpenAPI SHA256 64cf5231d5f085571fb4ee15bf76b70f1c78aa86ceaefead24107fe5e8a70ae5"
+trace:
+  use_cases: [UC-01]
+  business_rules: [BR-01, BR-02]
+  architecture_rules: [ARCH-01, ARCH-03, ARCH-05]
+level: HTTP + PostgreSQL
+actor: Guest
+preconditions: [disposable migrated PostgreSQL, active and suspended Sellers, published and unpublished products]
+given: [fixed UUID fixtures with variants and stock]
+when: [GET /categories, GET /products with filters and cursors, GET /products/{productId}]
+then:
+  returned_result_or_error: ["200 with bounded ID-descending pages and OpenAPI projections", "hidden or inactive detail is 404 RESOURCE_NOT_FOUND", "bad or changed cursor is 400 INVALID_CURSOR"]
+  persisted_state: [no changes]
+  forbidden_effects: [no hidden product exposure, no extra homepage endpoint, no stock reservation]
+fixtures: [test-owned UUID rows, synthetic dev fixtures guarded by dev profile]
+concurrency: [new rows may appear between pages; pagination is not a snapshot]
+automation:
+  test_class: com.phucle.ecommerce.discovery.DiscoveryHttpIntegrationTest
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew integrationTest --tests com.phucle.ecommerce.discovery.DiscoveryHttpIntegrationTest --console=plain --no-daemon"
+red_evidence: "2026-11-10: targeted DiscoveryHttpIntegrationTest executed 2 behavioral tests against migrated PostgreSQL; categoriesAndVisibleProductDetails and filtersAndInvalidCursor failed assertions because the public routes returned 403 before implementation. Earlier fixture setup failure was discarded."
+green_evidence: "2026-11-10: GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --console=plain --no-daemon passed; 9 unit/architecture and 12 PostgreSQL integration tests, including 4 discovery tests."
+cleanup: [dispose PostgreSQL container]
+status: GREEN
+open_decisions: []
+
+refactor_feedback:
+  source_revision: "Inkdrop note:LnoTujlD rev 2-c5ab7c2b71d2f2ea1493fb9436f90d36"
+  tests: [DiscoveryBoundaryTest, CursorConfigurationTest, DiscoveryHttpIntegrationTest]
+  red_evidence: "2026-11-10: DiscoveryBoundaryTest and CursorConfigurationTest ran 3 assertions; all failed behaviorally: exported API depended on servlet, Discovery source contained foreign-table SQL, and a short cursor MAC key was accepted at construction. Compile failures during refactoring were treated as blockers, not RED."
+  green_evidence: "2026-11-10: GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --console=plain --no-daemon passed: 13 unit/architecture tests and 12 PostgreSQL integration tests, zero failures. DiscoveryQueryHandlerTest checks batch composition without detail re-lookup and immutable result lists."
