@@ -62,6 +62,7 @@ class IdentityHttpIntegrationTest {
         registry.add("DB_MIGRATION_PASSWORD", POSTGRES::getPassword);
         registry.add("JWT_PRIVATE_KEY", JwtTestKeys::privateKey);
         registry.add("JWT_PUBLIC_KEY", JwtTestKeys::publicKey);
+        registry.add("CURSOR_MAC_SECRET", () -> "test-only-cursor-mac-secret-at-least-32-bytes");
     }
 
     @Test
