@@ -24,9 +24,18 @@ spring:
     clean-disabled: true
   modulith:
     detection-strategy: explicitly-annotated
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
 
 marketplace:
   dev-fixtures:
     enabled: false
   quick-login:
     enabled: false
+  jwt:
+    issuer: ${JWT_ISSUER:marketplace}
+    audience: ${JWT_AUDIENCE:marketplace-api}
+    access-token-ttl-seconds: ${JWT_ACCESS_TOKEN_TTL_SECONDS:900}
+    private-key: ${JWT_PRIVATE_KEY:}
+    public-key: ${JWT_PUBLIC_KEY:}

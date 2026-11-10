@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.phucle.ecommerce.MarketplaceApplication;
+import com.phucle.ecommerce.identity.JwtTestKeys;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -38,6 +39,8 @@ class ProdProfileIntegrationTest {
         registry.add("DB_RUNTIME_PASSWORD", POSTGRES::getPassword);
         registry.add("DB_MIGRATION_USER", POSTGRES::getUsername);
         registry.add("DB_MIGRATION_PASSWORD", POSTGRES::getPassword);
+        registry.add("JWT_PRIVATE_KEY", JwtTestKeys::privateKey);
+        registry.add("JWT_PUBLIC_KEY", JwtTestKeys::publicKey);
     }
 
     @Test

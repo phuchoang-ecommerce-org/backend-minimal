@@ -5,6 +5,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import com.phucle.ecommerce.identity.adapter.out.security.TrustedJwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
@@ -12,17 +15,39 @@ import org.springframework.security.web.SecurityFilterChain;
 class SecurityConfiguration {
 
     @Bean
-    SecurityFilterChain foundationSecurityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain foundationSecurityFilterChain(
+            HttpSecurity http, ProblemResponseWriter problemWriter, TrustedJwtAuthenticationConverter jwtConverter) throws Exception {
         return http
-                // Keep CSRF enabled. The profile-only absence probe must reach MVC so an
-                // unimplemented quick-login path remains 404 rather than a filter 403.
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login"))
+                // Guest-cart mutations keep CSRF/origin controls. Credential JSON endpoints do not use a cookie proof.
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login", "/accounts", "/auth/login"))
                 .httpBasic(httpBasic -> httpBasic.disable())
                 .formLogin(formLogin -> formLogin.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // No feature endpoint exists in the foundation. Permitting dispatcher routing keeps an
-                // absent prod quick-login route an actual 404; later feature slices add route RBAC.
-                .authorizeHttpRequests(requests -> requests.anyRequest().permitAll())
+                .oauth2ResourceServer(resourceServer -> resourceServer
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtConverter))
+                        .authenticationEntryPoint((request, response, exception) -> {
+                            response.setHeader("WWW-Authenticate", "Bearer");
+                            problemWriter.write(response, org.springframework.http.HttpStatus.UNAUTHORIZED,
+                                    "AUTHENTICATION_REQUIRED", "Authentication is required");
+                        }))
+                .exceptionHandling(errors -> errors
+                        .authenticationEntryPoint((request, response, exception) -> {
+                            response.setHeader("WWW-Authenticate", "Bearer");
+                            problemWriter.write(response, org.springframework.http.HttpStatus.UNAUTHORIZED,
+                                    "AUTHENTICATION_REQUIRED", "Authentication is required");
+                        })
+                        .accessDeniedHandler((request, response, exception) -> problemWriter.write(
+                                response, org.springframework.http.HttpStatus.FORBIDDEN,
+                                "ROLE_DENIED", "Access is denied")))
+                .authorizeHttpRequests(requests -> requests
+                        .requestMatchers("/auth/login", "/accounts", "/dev/quick-login").permitAll()
+                        .anyRequest().denyAll())
                 .build();
     }
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
 }

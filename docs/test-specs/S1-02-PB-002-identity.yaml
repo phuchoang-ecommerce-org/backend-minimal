@@ -1,0 +1,35 @@
+scenario_id: AT-UC-03-IDENTITY
+title: Guest registers a Member and obtains a verifiable access token by password login
+source_revision: "Sprint 1 Phase Inkdrop note note:TBPiZUJ7 rev 4-1de8a3186250f7ca2cadd341f45e8a2b; UC-03, identity-cart sequence, OpenAPI 0.2.0, JWT/RBAC decision"
+trace:
+  use_cases: [UC-03]
+  business_rules: []
+  architecture_rules: [ARCH-01, ARCH-03, ARCH-04, ARCH-05, ARCH-06, ARCH-07]
+level: full-stack HTTP + PostgreSQL + JWT
+actor: Guest
+preconditions: [empty disposable PostgreSQL database, configured ephemeral RSA key pair, no Guest cart cookie]
+input:
+  - "POST /accounts application/json {login, password (>=12), displayName}"
+  - "POST /auth/login application/json {login, password}"
+given: [Identity owns credentials, account role/status are persisted server-side, public registration creates MEMBER only]
+when: [a Guest registers, retries the login, authenticates with valid or invalid credentials, and presents a malformed Bearer token]
+then:
+  returned_result_or_error:
+    - "registration is 201 Account with id/login/role MEMBER and never a password/hash"
+    - "duplicate normalized login is 409 application/problem+json LOGIN_ALREADY_EXISTS"
+    - "invalid credentials are 401 application/problem+json INVALID_CREDENTIALS without account-existence detail"
+    - "login is 200 AuthTokens: RS256 access token, Bearer, 900-second lifetime, trusted MEMBER account, no-op cartMerge"
+    - "malformed Bearer token is 401 application/problem+json AUTHENTICATION_REQUIRED"
+  persisted_state: [one account has normalized login, BCrypt password hash, MEMBER role, ACTIVE status]
+  forbidden_effects: [public request cannot choose role or status; password/hash/JWT never enter logs or error bodies; no cart merge before Phase 4]
+fixtures: [random synthetic login and disposable PostgreSQL container]
+concurrency: [duplicate registration is protected by the normalized_login unique constraint and is mapped only when that known constraint is violated]
+automation:
+  test_class: [com.phucle.ecommerce.identity.IdentityHttpIntegrationTest]
+  test_method: [registersMemberAndNeverReturnsCredentialMaterial, rejectsDuplicateRegistrationWithStableProblemCode, logsInWithPersistedCredentialsAndIssuesShortLivedBearer, rejectsInvalidCredentialsAndMalformedBearerWithProblemJson]
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew integrationTest --tests com.phucle.ecommerce.identity.IdentityHttpIntegrationTest --no-daemon"
+red_evidence: "2026-11-09: IdentityHttpIntegrationTest executed 4 assertions against disposable PostgreSQL; all failed behaviorally (expected 201/401, actual 403 from the Phase 1 CSRF foundation). This is valid HTTP RED, not a compile, dependency, Docker, or zero-test failure."
+green_evidence: "2026-11-09: targeted IdentityHttpIntegrationTest passed 4/4 after implementation. Clean ./gradlew check passed: 5 unit/architecture/profile tests and 7 PostgreSQL integration tests, all zero failures."
+cleanup: [dispose the dedicated PostgreSQL container/database; do not delete audit rows]
+status: EXECUTED_GREEN
+open_decisions: ["Phase 4 owns actual Guest cart consumption; Phase 2 returns the documented no-op cartMerge result when no Guest cookie is present. V2 persists and returns the required registration displayName."]

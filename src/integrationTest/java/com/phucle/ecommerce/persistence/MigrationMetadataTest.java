@@ -34,7 +34,7 @@ class MigrationMetadataTest {
     }
 
     @Test
-    void appliesV1ToAnEmptyPostgresDatabaseAndRepeatsWithoutChanges() {
+    void appliesAllMigrationsToAnEmptyPostgresDatabaseAndRepeatsWithoutChanges() {
         Flyway flyway = Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("marketplace")
@@ -43,7 +43,7 @@ class MigrationMetadataTest {
                 .locations("classpath:db/migration")
                 .load();
 
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
 
         JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(

@@ -1,0 +1,26 @@
+scenario_id: AT-UC-03-IDENTITY-REFACTOR
+source_revision: "Phase 2 feedback note:g6FeyTC5 rev 3; UC-03; domain model rev 23; OpenAPI 0.2.0"
+trace:
+  use_cases: [UC-03]
+  business_rules: [guest-and-member-cart-on-login]
+  architecture_rules: [ARCH-03, ARCH-04, ARCH-05, ARCH-06, ARCH-07]
+scope: [Account aggregate and values, credential port, displayName persistence, trusted actor, JWT validation tests]
+file_scope: [identity/domain, identity/application, identity/adapter, identity/api, SecurityConfiguration, V2__account_display_name.sql, identity and migration tests]
+boundary: "MapStruct maps only HTTP request/response DTOs; Account.register builds the root; CredentialVerifier is the application port with a BCrypt security adapter."
+decision: "Persist displayName because the approved RegisterRequest requires it and Account response allows it. Existing accounts receive their normalized login as a migration backfill."
+expected_errors: ["invalid credentials 401", "invalid or stale JWT identity 401", "duplicate normalized login 409"]
+given: [a registered Member with displayName, a signed access token, a persisted account status]
+when: [register, authenticate, present a modified token, or change the account status]
+then:
+  result: [displayName survives registration and login, only active accounts yield a trusted actor, invalid signature or role yields 401]
+  persisted_state: [normalized unique login, BCrypt hash, display name, MEMBER role, ACTIVE status]
+  forbidden_effects: [request sets role or status, password or hash reaches public DTO, inactive actor authorizes a command]
+fixtures: [synthetic accounts and RSA keys, disposable PostgreSQL]
+cleanup: [dispose PostgreSQL container]
+concurrency: [unique normalized login remains database enforced]
+automation:
+  test_class: [IdentityHttpIntegrationTest, AccountDomainTest, IdentityArchitectureTest]
+red_evidence: "2026-11-10: IdentityHttpIntegrationTest compiled and ran against PostgreSQL; registration and login failed behavioral JSON assertions because displayName was absent (PathNotFoundException at lines 72 and 105)."
+green_evidence: "2026-11-10: GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --no-daemon passed; 9 unit/architecture tests and 8 PostgreSQL integration tests, zero failures."
+status: GREEN
+open_decisions: ["PB-004 Cart implementation and allowed Origin configuration are required before login cart merge can be completed."]
