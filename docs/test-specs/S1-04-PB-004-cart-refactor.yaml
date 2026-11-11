@@ -1,0 +1,22 @@
+scenario_id: AT-UC-02-MERGE-REFACTOR
+title: Cart ownership, source consumption and module boundaries
+source_revision: "Inkdrop note:jmpKLf2B rev 2-d565d2f76089338b5e24142361e711b4"
+decisions:
+  - "Keep previously stored lines visible with current variant price after publication or Seller status changes; the approved CartLine wire shape has no availability field. A later set returns 409 ITEM_UNAVAILABLE."
+  - "Only the Cart JDBC adapter reads cart/cart_line; Catalog supplies variant price and publication status, Inventory supplies stock."
+file_scope: [cart domain/application/JDBC adapter, catalog cart-offer read port and adapter, login composition, error mapping, tests]
+trace:
+  use_cases: [UC-02, UC-03]
+  business_rules: [BR-05, BR-06]
+  architecture_rules: [ARCH-01, ARCH-03, ARCH-05]
+given: [Seller account, stored Guest line, previously consumed Guest proof, inactive public offer]
+when: [call merge port directly, log in again, read owned cart]
+then:
+  returned_result_or_error: [role denied before Cart lookup, consumed cookie expired on login, stored line remains visible]
+  persisted_state: [no unauthorized merge or duplicate quantity]
+  forbidden_effects: [Cart SQL reading Catalog or Inventory tables, JDBC in Cart domain or application]
+automation:
+  test_classes: [CartHttpIntegrationTest, CartBoundaryTest]
+red_evidence: "2026-11-10: seven CartHttpIntegrationTest cases ran on PostgreSQL; memberLoginConsumesGuestCartOnce failed because replay did not expire the cookie, and directMergePortRejectsSellerBeforeReadingGuestSource failed because Seller reached the merge port. Compile and fixture failures were not treated as RED."
+green_evidence: "2026-11-10: GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --console=plain --no-daemon passed 14 unit/architecture and 20 PostgreSQL integration tests, including eight cart tests."
+status: GREEN

@@ -1,0 +1,18 @@
+scenario_id: AT-UC-02-CART-PORTS
+title: Cart input and output port boundary refactor
+source_revision: "Clean Architecture decision revision 83; Phase 4 contract OpenAPI SHA256 64cf5231d5f085571fb4ee15bf76b70f1c78aa86ceaefead24107fe5e8a70ae5"
+trace:
+  use_cases: [UC-02, UC-03]
+  business_rules: [BR-05, BR-06]
+  architecture_rules: [ARCH-01, ARCH-03, ARCH-05]
+given: [current Phase 4 Cart behavior and PostgreSQL fixtures]
+when: [Cart HTTP adapter invokes input ports and application handlers use output repository port]
+then:
+  returned_result_or_error: [existing GET/PUT/DELETE/login responses and error codes are unchanged]
+  persisted_state: [existing version and once-only merge behavior unchanged]
+  forbidden_effects: [application imports JDBC adapter, web adapter imports concrete handler, domain imports Spring]
+automation:
+  test_classes: [CartPortBoundaryTest, CartHttpIntegrationTest]
+red_evidence: "2026-11-10: CartPortBoundaryTest failed structurally at the missing repository output port. This was an architecture RED for a behavior-preserving refactor, not a behavioral RED claim. Existing Phase 4 HTTP/PostgreSQL behavior was already GREEN."
+green_evidence: "2026-11-10: GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --console=plain --no-daemon passed after the refactor: 15 unit/architecture tests and 20 PostgreSQL integration tests."
+status: GREEN

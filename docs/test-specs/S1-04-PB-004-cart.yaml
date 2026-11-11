@@ -1,0 +1,25 @@
+scenario_id: AT-UC-02-MERGE
+title: Guest and Member cart with once-only login merge
+source_revision: "OpenAPI SHA256 64cf5231d5f085571fb4ee15bf76b70f1c78aa86ceaefead24107fe5e8a70ae5; BA use-cases SHA256 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608; BA business-rules SHA256 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad"
+trace:
+  use_cases: [UC-02, UC-03]
+  business_rules: [BR-05, BR-06]
+  architecture_rules: [ARCH-01, ARCH-03, ARCH-05]
+level: HTTP + PostgreSQL
+actor: Guest and Member
+preconditions: [disposable migrated PostgreSQL, active published variant, Member credentials]
+given: [opaque Guest session, owned Member cart, fixed variant and stock fixtures]
+when: [GET /cart, PUT and DELETE cart line, POST /auth/login with Guest cookie]
+then:
+  returned_result_or_error: [versioned own cart, 409 stale edit, 403 denied Origin or role, 401 invalid bearer, once-only merge with rejected lines]
+  persisted_state: [one consumed Guest source, valid quantities summed into Member cart]
+  forbidden_effects: [foreign cart access, second merge, stock reservation]
+fixtures: [test-owned UUID rows and disposable Guest sessions]
+concurrency: [simultaneous login with one Guest proof imports quantities once]
+automation:
+  test_class: com.phucle.ecommerce.cart.CartHttpIntegrationTest
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew integrationTest --tests com.phucle.ecommerce.cart.CartHttpIntegrationTest --console=plain --no-daemon"
+red_evidence: "2026-11-10: CartHttpIntegrationTest.anonymousGetCreatesVersionedGuestCart ran against migrated PostgreSQL; expected HTTP 200, actual HTTP 401. The assertion failed behaviorally."
+green_evidence: "2026-11-10: GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --console=plain --no-daemon passed: 13 unit/architecture and 18 PostgreSQL integration tests, including six cart tests."
+cleanup: [dispose PostgreSQL container]
+status: GREEN
