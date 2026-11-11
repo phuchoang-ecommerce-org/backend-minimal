@@ -19,7 +19,7 @@ class SecurityConfiguration {
             HttpSecurity http, ProblemResponseWriter problemWriter, TrustedJwtAuthenticationConverter jwtConverter) throws Exception {
         return http
                 // Guest-cart mutations keep CSRF/origin controls. Credential JSON endpoints do not use a cookie proof.
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login", "/accounts", "/auth/login"))
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login", "/accounts", "/auth/login", "/cart", "/cart/lines/**"))
                 .httpBasic(httpBasic -> httpBasic.disable())
                 .formLogin(formLogin -> formLogin.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -42,6 +42,7 @@ class SecurityConfiguration {
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers("/auth/login", "/accounts", "/dev/quick-login").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/categories", "/products", "/products/{productId}").permitAll()
+                        .requestMatchers("/cart", "/cart/lines/**").permitAll()
                         .anyRequest().denyAll())
                 .build();
     }

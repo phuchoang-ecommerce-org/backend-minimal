@@ -29,6 +29,9 @@ spring:
       fail-on-unknown-properties: true
 
 marketplace:
+  cart:
+    guest-ttl-seconds: ${GUEST_CART_TTL_SECONDS:2592000}
+    allowed-origins: ${CART_ALLOWED_ORIGINS:}
   cursor:
     mac-secret: ${CURSOR_MAC_SECRET:}
   dev-fixtures:

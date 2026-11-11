@@ -1,0 +1,32 @@
+scenario_id: AT-UC-03-IDENTITY-LOGIN-ROUTE
+title: Identity web adapter owns the login route without an Identity to Cart dependency
+source_revision:
+  use_cases_sha256: 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608
+  business_rules_sha256: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+  identity_cart_sequence_sha256: 02d6aa65670fd4b8afc4d0003ced3e4a583a8e7b3c1c6c53199c3526c0f83b0f
+  openapi_sha256: 64cf5231d5f085571fb4ee15bf76b70f1c78aa86ceaefead24107fe5e8a70ae5
+trace:
+  use_cases: [UC-03, UC-02]
+  business_rules: [BR-05, BR-06]
+  architecture_rules: [Spring Modulith closed modules, Identity never imports Cart]
+level: architecture
+actor: Guest, with or without a Guest cart cookie
+preconditions: [Existing login and cart merge behavior]
+input: POST /auth/login
+given: IdentityController and existing login route
+when: Inspect the declared POST mappings of IdentityController
+then:
+  returned_result_or_error: IdentityController declares POST /auth/login
+  persisted_state: Unchanged by route ownership
+  forbidden_effects: No duplicate login route and no Identity to Cart dependency
+fixtures: Reflection over production controller; existing HTTP integration fixtures for contract checks
+concurrency: Existing cart merge concurrency test remains applicable
+automation:
+  test_class: com.phucle.ecommerce.identity.adapter.in.web.IdentityRouteOwnershipTest
+  test_method: identityControllerOwnsLoginRoute
+  command: ./gradlew test --tests com.phucle.ecommerce.identity.adapter.in.web.IdentityRouteOwnershipTest
+red_evidence: './gradlew test --tests com.phucle.ecommerce.identity.adapter.in.web.IdentityRouteOwnershipTest: 1 test, 1 failed; assertion at IdentityRouteOwnershipTest.java:17 because IdentityController did not declare /auth/login'
+green_evidence: './gradlew test: passed; ownership and Modulith tests each ran 1 with no skips. ./gradlew integrationTest --tests com.phucle.ecommerce.identity.IdentityHttpIntegrationTest --tests com.phucle.ecommerce.cart.CartHttpIntegrationTest: passed; 5 identity and 8 cart tests, no skips.'
+cleanup: None
+status: GREEN
+open_decisions: []

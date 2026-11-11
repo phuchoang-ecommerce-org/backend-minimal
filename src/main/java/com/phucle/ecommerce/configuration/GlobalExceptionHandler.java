@@ -4,6 +4,7 @@ import com.phucle.ecommerce.identity.api.InvalidCredentialsException;
 import com.phucle.ecommerce.identity.api.LoginAlreadyExistsException;
 import com.phucle.ecommerce.discovery.InvalidCursorException;
 import com.phucle.ecommerce.discovery.PublicProductNotFoundException;
+import com.phucle.ecommerce.cart.domain.CartFailure;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.MediaType;
@@ -23,6 +24,20 @@ class GlobalExceptionHandler {
 
     GlobalExceptionHandler(ApiProblemFactory problems) {
         this.problems = problems;
+    }
+
+    @ExceptionHandler(CartFailure.class)
+    ResponseEntity<ApiProblem> cartError(CartFailure exception) {
+        HttpStatus status = switch (exception.code()) {
+            case AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
+            case ROLE_DENIED, ORIGIN_DENIED -> HttpStatus.FORBIDDEN;
+            case RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case STALE_VERSION, ITEM_UNAVAILABLE, QUANTITY_EXCEEDED -> HttpStatus.CONFLICT;
+        };
+        var response = ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON);
+        if (status == HttpStatus.UNAUTHORIZED) response.header("WWW-Authenticate", "Bearer");
+        return response
+                .body(problems.create(status, exception.code().name(), "The cart request could not be completed"));
     }
 
     @ExceptionHandler(InvalidCursorException.class)

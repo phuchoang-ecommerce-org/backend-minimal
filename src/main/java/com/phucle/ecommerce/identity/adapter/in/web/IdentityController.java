@@ -1,10 +1,14 @@
 package com.phucle.ecommerce.identity.adapter.in.web;
 
-import com.phucle.ecommerce.identity.api.LogIn;
+import com.phucle.ecommerce.identity.api.CompleteLogin;
 import com.phucle.ecommerce.identity.api.RegisterMember;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-import java.util.List;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,12 +20,12 @@ import org.springframework.web.bind.annotation.RestController;
 class IdentityController {
 
     private final RegisterMember registerMember;
-    private final LogIn logIn;
+    private final CompleteLogin completeLogin;
     private final IdentityWebMapper mapper;
 
-    IdentityController(RegisterMember registerMember, LogIn logIn, IdentityWebMapper mapper) {
+    IdentityController(RegisterMember registerMember, CompleteLogin completeLogin, IdentityWebMapper mapper) {
         this.registerMember = registerMember;
-        this.logIn = logIn;
+        this.completeLogin = completeLogin;
         this.mapper = mapper;
     }
 
@@ -32,13 +36,30 @@ class IdentityController {
     }
 
     @PostMapping("/auth/login")
-    LoginResponse logIn(@Valid @RequestBody LoginRequest request) {
-        var result = logIn.logIn(mapper.toCommand(request));
-        return new LoginResponse(
-                result.accessToken(),
-                "Bearer",
-                result.expiresInSeconds(),
-                mapper.toResponse(result.account()),
-                new CartMergeResponse(false, List.of()));
+    LoginResponse logIn(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest,
+                        HttpServletResponse httpResponse) {
+        var result = completeLogin.complete(mapper.toCommand(request), guestProof(httpRequest),
+                httpRequest.getHeader("Origin"));
+        if (result.merged() || result.sourceConsumed()) {
+            httpResponse.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from("guest_cart", "")
+                    .path("/").httpOnly(true).secure(result.secureCookie()).sameSite("Lax")
+                    .maxAge(0).build().toString());
+        }
+        return new LoginResponse(result.login().accessToken(), "Bearer", result.login().expiresInSeconds(),
+                mapper.toResponse(result.login().account()),
+                new CartMergeResponse(result.merged(), result.rejectedLines()));
+    }
+
+    private String guestProof(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+        for (Cookie cookie : cookies) {
+            if (cookie.getName().equals("guest_cart")) {
+                return cookie.getValue();
+            }
+        }
+        return null;
     }
 }

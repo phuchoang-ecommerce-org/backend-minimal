@@ -1,6 +1,6 @@
 package com.phucle.ecommerce.cart.api;
 
-import java.util.UUID;
+import com.phucle.ecommerce.identity.api.TrustedActor;
 
-public record GuestCartMergeCommand(UUID memberAccountId, String guestSessionProof) {
+public record GuestCartMergeCommand(TrustedActor actor, String guestSessionProof) {
 }

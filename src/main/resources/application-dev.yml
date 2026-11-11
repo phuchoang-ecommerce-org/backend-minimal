@@ -4,6 +4,8 @@ spring:
       on-profile: dev
 
 marketplace:
+  cart:
+    allowed-origins: ${CART_ALLOWED_ORIGINS:http://localhost:3000}
   dev-fixtures:
     enabled: ${DEV_FIXTURES_ENABLED:false}
     member-password-hash: ${DEV_MEMBER_PASSWORD_HASH:}
