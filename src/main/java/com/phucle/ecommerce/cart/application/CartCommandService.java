@@ -13,6 +13,7 @@ import com.phucle.ecommerce.cart.domain.CartFailure;
 import com.phucle.ecommerce.cart.domain.Quantity;
 import com.phucle.ecommerce.catalog.api.CartOfferReadPort;
 import com.phucle.ecommerce.inventory.api.PublicStockReadPort;
+import com.phucle.ecommerce.identity.api.TrustedActor;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -30,11 +31,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
     private static final SecureRandom RANDOM=new SecureRandom();
     private final CartRepositoryPort repository;
-    private final CartQueryService queries;
+    private final GuestCartProjection queries;
     private final CartOfferReadPort offers;
     private final PublicStockReadPort stocks;
     private final GuestSessionPolicy settings;
-    public CartCommandService(CartRepositoryPort repository,CartQueryService queries,CartOfferReadPort offers,
+    public CartCommandService(CartRepositoryPort repository,GuestCartProjection queries,CartOfferReadPort offers,
             PublicStockReadPort stocks,GuestSessionPolicy settings) {
         this.repository=repository;this.queries=queries;this.offers=offers;this.stocks=stocks;this.settings=settings;
     }
@@ -48,9 +49,9 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
         return new GuestCart(view(cart),created);
     }
     @Transactional
-    @Override public CartView setLine(UUID member,String proof,UUID variant,int quantity,long expected) {
+    @Override public CartView setLine(TrustedActor actor,String proof,UUID variant,int quantity,long expected) {
+        Cart cart=owned(actor,proof,true);
         Quantity requested=new Quantity(quantity);
-        Cart cart=owned(member,proof,true);
         cart.requireVersion(expected);
         var offer=offers.offers(Set.of(variant)).get(variant);
         var stock=stocks.findStock(Set.of(variant)).get(variant);
@@ -60,9 +61,9 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
         return view(cart);
     }
     @Transactional
-    @Override public void removeLine(UUID member,String proof,UUID variant,long expected) {
+    @Override public void removeLine(TrustedActor actor,String proof,UUID variant,long expected) {
+        Cart cart=owned(actor,proof,false);
         if (expected<0) throw new IllegalArgumentException();
-        Cart cart=owned(member,proof,false);
         cart.requireVersion(expected);
         long before=cart.version();cart.remove(variant);repository.save(cart,before);
     }
@@ -96,7 +97,9 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
         source.consumeInto(target.id());repository.save(source,source.version());
         return new GuestCartMergeResult(true,true,List.copyOf(rejected));
     }
-    private Cart owned(UUID member,String proof,boolean createMember) {
+    private Cart owned(TrustedActor actor,String proof,boolean createMember) {
+        if (actor != null) CartActorAuthorization.requireMember(actor);
+        UUID member = actor == null ? null : actor.accountId();
         Cart cart=member==null?repository.guest(proof==null?null:hash(proof),true):repository.member(member,true);
         if (cart==null && member!=null && createMember) cart=repository.createMember(member);
         if (cart==null) throw new CartFailure(member==null?CartFailure.Code.AUTHENTICATION_REQUIRED:

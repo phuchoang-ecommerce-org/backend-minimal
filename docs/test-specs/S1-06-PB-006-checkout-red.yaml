@@ -1,0 +1,203 @@
+task_brief:
+  backlog: S1-06 / PB-006
+  title: Prepare executable RED contracts for atomic multi-Seller COD checkout
+  scope: Test preparation only; Sprint 2 implements checkout behavior.
+  source_revision:
+    sprint_note: "inkdrop://note/TBPiZUJ7 revision 5"
+    ba_use_cases_sha256: 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608
+    ba_business_rules_sha256: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi_sha256: 64cf5231d5f085571fb4ee15bf76b70f1c78aa86ceaefead24107fe5e8a70ae5
+    domain_behavior_sha256: 2b7d535999780e56dbd9892b5b08c1b38c318dbcb0ead340626ceddc2cd67dd5
+  trace:
+    use_cases: [UC-04]
+    business_rules: [BR-01, BR-02, BR-03, BR-04, BR-05, BR-06, BR-07]
+    architecture_rules: [ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05, ARCH-06, ARCH-07, ARCH-10]
+  decisions:
+    - Place COD order uses POST /orders and an Idempotency-Key scoped to Member.
+    - Unknown voucherCode returns 409 VOUCHER_INVALID; configured voucher policy remains PB-012.
+    - The RED suite is a separate checkoutRed task, excluded from check.
+    - OrderFactory and constructor-injected PlaceOrder remain compile-only seams; jar and bootJar reject their placeholder marker.
+  file_scope:
+    - build.gradle.kts
+    - src/main/java/com/phucle/ecommerce/ordering/domain/OrderFactory.java
+    - src/main/java/com/phucle/ecommerce/ordering/application/PlaceOrder.java
+    - src/checkoutRed/java/com/phucle/ecommerce/ordering/
+    - docs/test-specs/S1-06-PB-006-checkout-red.yaml
+  port_and_mapper_boundary: "Sprint 2 must put orchestration behind Ordering application ports; WebMVC maps approved CreateOrder/Order payloads and never creates an aggregate or trusts owner/role from the body."
+  expected_errors:
+    - "400 INVALID_REQUEST for malformed input or absent/invalid key"
+    - "401 AUTHENTICATION_REQUIRED for Guest or invalid bearer"
+    - "403 ROLE_DENIED for Seller or Admin"
+    - "404 RESOURCE_NOT_FOUND for missing or foreign address"
+    - "409 CART_CHANGED, EMPTY_CART, ITEM_UNAVAILABLE, STOCK_UNAVAILABLE, VOUCHER_INVALID, IDEMPOTENCY_CONFLICT"
+    - "500 INTERNAL_ERROR for a late audit write failure, with full rollback"
+  open_decisions: []
+
+automation:
+  task: checkoutRed
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew checkoutRed --console=plain --no-daemon"
+  test_source: src/checkoutRed/java/com/phucle/ecommerce/ordering/
+  test_source_sha256:
+    CheckoutDomainRedTest.java: c9e105572e7888e4270aef9df216ab56dc954e2fa013e112d2f142a5247578e8
+    CheckoutApplicationRedTest.java: 7388f27fe741bf8fc8ab49011252112511b72dcf3565aadba6c0a15142259407
+    CheckoutPostgresRedTest.java: d3e45c26ab85a7bb4123f48304bb117c0383fa4b86e872ec54c3dd9328323a93
+  fixtures: "Deterministic name-derived UUIDs; distinct Account and SellerShop IDs; disposable PostgreSQL 18; synthetic credentials and JWT keys."
+  cleanup: "Testcontainers disposes the database; late-failure trigger/function are dropped in finally."
+
+scenarios:
+  - scenario_id: AT-UC-04-DOMAIN-GROUPING
+    title: Two Seller portions preserve exact USD cent totals
+    level: domain
+    actor: Member purchase facts with two SellerShop IDs
+    given: "Member ID, owned address snapshot and two validated product/variant lines at USD 12.50 x2 and USD 7.25 x1."
+    when: OrderFactory.place receives validated locked facts
+    then: "One pending portion per Seller; frozen Member/address/title/SKU; totals 25.00 and 7.25; order total 32.25."
+    persisted_state: none
+    forbidden_effects: "No JDBC, HTTP, role mapping, or monetary rounding in domain."
+    concurrency: not applicable
+    test: CheckoutDomainRedTest.groupsTwoSellersAndSumsUsdWithoutRoundingAwayCents
+  - scenario_id: AT-UC-04-DOMAIN-DISCOUNT
+    title: Allocated line discount is frozen into order totals
+    level: domain
+    actor: Member purchase facts
+    given: "Two units at USD 12.50 with allocated discount USD 1.25."
+    when: OrderFactory.place receives validated facts and address snapshot
+    then: "Line, portion and order net totals are USD 23.75; immutable line keeps the discount."
+    persisted_state: none
+    forbidden_effects: "No floating-point or recomputation from mutable product prices."
+    concurrency: not applicable
+    test: CheckoutDomainRedTest.allocatedDiscountIsFrozenInLineAndPortionTotals
+  - scenario_id: AT-UC-04-DOMAIN-EMPTY
+    title: Empty validated checkout cannot create an order root
+    level: domain
+    actor: Member
+    given: "Member ID, address snapshot and no validated lines."
+    when: OrderFactory.place receives an empty list
+    then: "IllegalArgumentException before constructing portions."
+    persisted_state: none
+    forbidden_effects: "No empty customer order."
+    concurrency: not applicable
+    test: CheckoutDomainRedTest.emptyCheckoutCannotCreateAnOrderRoot
+  - scenario_id: AT-UC-04-APPLICATION-PLACE
+    title: Application command returns a placed order identity
+    level: application
+    actor: trusted Member
+    given: "Owned address ID, cart version 1, COD and unique key; fake replay, cart, address, offer, stock, voucher and audit ports."
+    when: PlaceOrder.execute receives the command
+    then: "A non-null order ID and PLACED status; fake ports observe offer check, stock decrement, cart consume, order save and audit append."
+    persisted_state: "Full effects are asserted in PostgreSQL scenarios below."
+    forbidden_effects: "No controller-supplied owner or price is accepted."
+    concurrency: not applicable
+    test: CheckoutApplicationRedTest.memberCommandReturnsPlacedOrderIdentity
+  - scenario_id: AT-UC-04-TWO-SELLER-COMMIT
+    title: Mixed Seller checkout commits one order and all snapshots
+    level: mvc + postgres
+    actor: trusted Member with owned address/cart
+    given: "Two active Sellers, published offers, 5 units each; cart requests 2 and 1."
+    when: POST /orders with cartVersion 1, COD and unique key
+    then: "201 PLACED; two PENDING_PAYMENT portions; total USD 32.25; address and line snapshots."
+    persisted_state: "One customer order, two portions, two lines, stock 3 and 4, empty version-2 cart, one audit entry."
+    forbidden_effects: "No independent SellerOrder write, stale price, or partial order."
+    concurrency: not applicable
+    test: CheckoutPostgresRedTest.twoSellerCheckoutSnapshotsAndConsumesOneCartAtomically
+  - scenario_id: AT-UC-04-ADDRESS-OWNERSHIP
+    title: Foreign and missing checkout addresses are indistinguishable
+    level: mvc + postgres
+    actor: Member A selecting Member B's address
+    given: "Member A has a valid cart and owned address; Member B has a separate address."
+    when: Member A posts B's ID and then a missing UUID
+    then: "Both return 404 RESOURCE_NOT_FOUND."
+    persisted_state: "No order or stock/cart mutation."
+    forbidden_effects: "No foreign address content or existence leak."
+    concurrency: not applicable
+    test: CheckoutPostgresRedTest.foreignAddressAndMissingAddressBothReturn404WithoutWrites
+  - scenario_id: AT-UC-04-VERSION-VOUCHER
+    title: Stale cart and unknown voucher reject without consuming intent
+    level: mvc + postgres
+    actor: trusted Member
+    given: "Cart version 1 and no configured vouchers."
+    when: "POST with cartVersion 0; POST with unknown voucherCode."
+    then: "409 CART_CHANGED and 409 VOUCHER_INVALID respectively."
+    persisted_state: "No order, stock change, cart consumption, or retained key."
+    forbidden_effects: "Unknown voucher cannot be silently ignored."
+    concurrency: not applicable
+    test: CheckoutPostgresRedTest.staleCartVersionAndUnknownVoucherRejectWithoutConsumingKey
+  - scenario_id: AT-UC-04-LISTING-ELIGIBILITY
+    title: Unpublished or inactive Seller offer rejects entire checkout
+    level: mvc + postgres
+    actor: trusted Member
+    given: "Two-Seller cart; second offer becomes unpublished or Seller becomes suspended."
+    when: POST /orders with current cartVersion
+    then: "409 ITEM_UNAVAILABLE for each state."
+    persisted_state: "Neither stock row changes and no order is saved."
+    forbidden_effects: "Previously valid cart line cannot bypass current eligibility."
+    concurrency: not applicable
+    test: CheckoutPostgresRedTest.unpublishedOrInactiveOfferRejectsEntireMixedSellerCheckout
+  - scenario_id: AT-UC-04-ROLE-BOUNDARY
+    title: Guest and Seller cannot place an order
+    level: mvc + postgres
+    actor: Guest, invalid bearer, Seller
+    given: "Valid JSON and key; Seller Account ID differs from SellerShop ID."
+    when: POST /orders under each identity
+    then: "Guest/invalid bearer 401 AUTHENTICATION_REQUIRED; Seller 403 ROLE_DENIED."
+    persisted_state: "No order rows."
+    forbidden_effects: "No fallback from invalid bearer to Guest checkout."
+    concurrency: not applicable
+    test: CheckoutPostgresRedTest.checkoutRequiresMemberBearerAndDoesNotAcceptSellerRole
+  - scenario_id: AT-UC-04-REPLAY-CONFLICT
+    title: Same key/body replays original snapshot; changed body conflicts
+    level: mvc + postgres
+    actor: trusted Member
+    given: "Successful checkout; address subsequently changes."
+    when: "Repeat same key/body, then reuse key with another voucherCode."
+    then: "Original 201 JSON is replayed; changed body is 409 IDEMPOTENCY_CONFLICT."
+    persisted_state: "Exactly one order and one decrement of each stock row."
+    forbidden_effects: "Replay cannot read changed address or consume cart again."
+    concurrency: sequential replay
+    test: CheckoutPostgresRedTest.sameKeyReplaysOriginalCreationSnapshotAndChangedBodyConflicts
+  - scenario_id: AT-UC-04-LAST-UNIT-RACE
+    title: Two Members racing for the last unit cannot oversell
+    level: postgres concurrency
+    actor: two trusted Members with separate carts/addresses
+    given: "One available unit of the same published variant."
+    when: "Two POST /orders calls start together through a CountDownLatch."
+    then: "One 201 and one 409; one order; stock zero; losing cart remains."
+    persisted_state: "Exactly one stock decrement and one customer order."
+    forbidden_effects: "No negative stock or losing Member's order."
+    concurrency: "Two threads, independent requests, 20-second bounded waits."
+    test: CheckoutPostgresRedTest.twoMembersRacingForLastUnitCommitOnlyOneOrder
+  - scenario_id: AT-UC-04-SAME-KEY-RACE
+    title: Concurrent identical Member/key intent commits once
+    level: postgres concurrency
+    actor: one trusted Member
+    given: "One cart and one idempotency key."
+    when: "Two identical POST /orders calls start together through a CountDownLatch."
+    then: "Both return the same original 201 JSON."
+    persisted_state: "One order and one stock decrement."
+    forbidden_effects: "No duplicate portions, line rows, audit, or stock decrement."
+    concurrency: "Two threads, independent requests, 20-second bounded waits."
+    test: CheckoutPostgresRedTest.concurrentIdenticalKeyReturnsOneOriginalOrderAndOneStockDecrement
+  - scenario_id: AT-UC-04-LATE-ROLLBACK
+    title: Audit write failure rolls back the whole transaction
+    level: postgres
+    actor: trusted Member
+    given: "Valid two-Seller cart and a test-only audit insert trigger that raises an exception."
+    when: POST /orders with a new key
+    then: "500 INTERNAL_ERROR; trigger is removed in finally."
+    persisted_state: "No order/key, original stock, original cart lines and version."
+    forbidden_effects: "No partial stock/order/cart commit before audit."
+    concurrency: not applicable
+    test: CheckoutPostgresRedTest.lateAuditFailureRollsBackStockOrderCartAndKey
+
+red_evidence:
+  date: 2026-11-11
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew checkoutRed --console=plain --no-daemon"
+  result: "13 discovered; 12 failed; 1 passed (role boundary). PostgreSQL 18.6 started and Flyway migrated. Domain/application seams threw UnsupportedOperationException; empty factory input raised that exception instead of IllegalArgumentException. Checkout HTTP assertions expected 201/404/409/500 but observed 403 from the deny-all /orders security route. These are missing-behavior failures, not compile, dependency, database, or zero-test failures."
+  report: build/reports/tests/checkoutRed/index.html
+regression_evidence:
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --console=plain --no-daemon"
+  result: "BUILD SUCCESSFUL; 24 unit/architecture tests and 25 PostgreSQL integration tests, zero failures. checkoutRed is excluded from check."
+  reports: [build/reports/tests/test/index.html, build/reports/tests/integrationTest/index.html]
+green_evidence: "Not applicable in Sprint 1; PB-006 implementation is scheduled for Sprint 2."
+packaging_gate_evidence: "./gradlew checkoutRed jar bootJar --continue failed assertNoCheckoutPlaceholder with the explicit PB-006 placeholder message; neither jar task packaged the application."
+status: RED

@@ -1,7 +1,7 @@
 package com.phucle.ecommerce.cart.application.port.in;
 
-import java.util.UUID;
+import com.phucle.ecommerce.identity.api.TrustedActor;
 
 public interface CartQueries {
-    CartView getMemberCart(UUID memberId);
+    CartView getMemberCart(TrustedActor actor);
 }

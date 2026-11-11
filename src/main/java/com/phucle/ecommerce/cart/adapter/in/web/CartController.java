@@ -5,6 +5,8 @@ import com.phucle.ecommerce.cart.application.port.in.CartCommands;
 import com.phucle.ecommerce.cart.application.port.in.CartQueries;
 import com.phucle.ecommerce.cart.application.port.in.CartView;
 import com.phucle.ecommerce.cart.application.port.in.GuestCart;
+import com.phucle.ecommerce.identity.api.CurrentActor;
+import com.phucle.ecommerce.identity.api.TrustedActor;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -29,13 +31,14 @@ final class CartController {
     private final CartCommands commands;
     private final CartQueries queries;
     private final GuestOriginPolicy guestPolicy;
-    CartController(CartCommands commands, CartQueries queries, GuestOriginPolicy guestPolicy) {
-        this.commands = commands; this.queries=queries; this.guestPolicy = guestPolicy;
+    private final CurrentActor currentActor;
+    CartController(CartCommands commands, CartQueries queries, GuestOriginPolicy guestPolicy, CurrentActor currentActor) {
+        this.commands = commands; this.queries=queries; this.guestPolicy = guestPolicy; this.currentActor = currentActor;
     }
     @GetMapping("/cart")
     CartView get(HttpServletRequest request, HttpServletResponse response) {
-        UUID member = member();
-        if (member != null) return queries.getMemberCart(member);
+        TrustedActor actor = actor();
+        if (actor != null) return queries.getMemberCart(actor);
         GuestCart guest = commands.getOrCreateGuest(proof(request));
         if (guest.proof() != null) response.addHeader(HttpHeaders.SET_COOKIE,
                 cookie(guest.proof(), guestPolicy.guestTtlSeconds(), guestPolicy.secureCookie()));
@@ -43,26 +46,23 @@ final class CartController {
     }
     @PutMapping("/cart/lines/{variantId}")
     CartView set(@PathVariable UUID variantId, @RequestBody WriteLine body, HttpServletRequest request) {
-        UUID member = member();
+        TrustedActor actor = actor();
         String proof = proof(request);
-        if (member == null && proof != null) guestPolicy.requireAllowed(request.getHeader("Origin"));
+        if (actor == null && proof != null) guestPolicy.requireAllowed(request.getHeader("Origin"));
         if (body.quantity() == null || body.expectedVersion() == null) throw new IllegalArgumentException();
-        return commands.setLine(member, proof, variantId, body.quantity(), body.expectedVersion());
+        return commands.setLine(actor, proof, variantId, body.quantity(), body.expectedVersion());
     }
     @DeleteMapping("/cart/lines/{variantId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void remove(@PathVariable UUID variantId, @RequestParam long expectedVersion, HttpServletRequest request) {
-        UUID member = member();
+        TrustedActor actor = actor();
         String proof = proof(request);
-        if (member == null && proof != null) guestPolicy.requireAllowed(request.getHeader("Origin"));
-        commands.removeLine(member, proof, variantId, expectedVersion);
+        if (actor == null && proof != null) guestPolicy.requireAllowed(request.getHeader("Origin"));
+        commands.removeLine(actor, proof, variantId, expectedVersion);
     }
-    private UUID member() {
-        if (SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken token) {
-            if (token.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("ROLE_MEMBER")))
-                throw new com.phucle.ecommerce.cart.domain.CartFailure(
-                        com.phucle.ecommerce.cart.domain.CartFailure.Code.ROLE_DENIED);
-            return UUID.fromString(token.getName());
+    private TrustedActor actor() {
+        if (SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken) {
+            return currentActor.require();
         }
         return null;
     }

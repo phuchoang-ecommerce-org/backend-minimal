@@ -4,6 +4,7 @@ import com.phucle.ecommerce.cart.application.port.in.CartQueries;
 import com.phucle.ecommerce.cart.application.port.in.CartView;
 import com.phucle.ecommerce.cart.application.port.out.CartReadPort;
 import com.phucle.ecommerce.catalog.api.CartOfferReadPort;
+import com.phucle.ecommerce.identity.api.TrustedActor;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,16 +15,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class CartQueryService implements CartQueries {
+public class CartQueryService implements CartQueries, GuestCartProjection {
     private final CartReadPort read;
     private final CartOfferReadPort offers;
     public CartQueryService(CartReadPort read,CartOfferReadPort offers) {
         this.read=read;this.offers=offers;
     }
     @Transactional(readOnly=true)
-    @Override public CartView getMemberCart(UUID memberId) { return view(read.member(memberId)); }
+    @Override public CartView getMemberCart(TrustedActor actor) {
+        CartActorAuthorization.requireMember(actor);
+        return view(read.member(actor.accountId()));
+    }
     @Transactional(readOnly=true)
-    public CartView existingGuest(String hash) {
+    @Override public CartView existingGuest(String hash) {
         var snapshot = read.guest(hash);
         return snapshot == null || snapshot.consumed() ? null : view(snapshot);
     }

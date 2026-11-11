@@ -47,6 +47,7 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.springframework.modulith:spring-modulith-starter-test")
     testImplementation("org.assertj:assertj-core")
     testImplementation("com.tngtech.archunit:archunit-junit5:$archUnitVersion")
@@ -70,6 +71,12 @@ sourceSets {
         compileClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
         runtimeClasspath += output + compileClasspath
     }
+    create("checkoutRed") {
+        java.srcDir("src/checkoutRed/java")
+        resources.srcDir("src/checkoutRed/resources")
+        compileClasspath += sourceSets.main.get().output + sourceSets["integrationTest"].output + configurations.testRuntimeClasspath.get()
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
 configurations {
@@ -77,6 +84,12 @@ configurations {
         extendsFrom(configurations.testImplementation.get())
     }
     named("integrationTestRuntimeOnly") {
+        extendsFrom(configurations.testRuntimeOnly.get())
+    }
+    named("checkoutRedImplementation") {
+        extendsFrom(configurations.testImplementation.get())
+    }
+    named("checkoutRedRuntimeOnly") {
         extendsFrom(configurations.testRuntimeOnly.get())
     }
 }
@@ -103,6 +116,32 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     useJUnitPlatform()
 }
 
+tasks.register<Test>("checkoutRed") {
+    description = "Runs the deliberately failing PB-006 checkout contract suite."
+    group = "verification"
+    testClassesDirs = sourceSets["checkoutRed"].output.classesDirs
+    classpath = sourceSets["checkoutRed"].runtimeClasspath
+    shouldRunAfter(integrationTest)
+    useJUnitPlatform()
+}
+
 tasks.named("check") {
     dependsOn(integrationTest)
 }
+
+val assertNoCheckoutPlaceholder = tasks.register("assertNoCheckoutPlaceholder") {
+    description = "Blocks application packaging while checkout compile seams remain unimplemented."
+    group = "verification"
+    doLast {
+        val seams = listOf(
+            file("src/main/java/com/phucle/ecommerce/ordering/application/PlaceOrder.java"),
+            file("src/main/java/com/phucle/ecommerce/ordering/domain/OrderFactory.java")
+        )
+        check(seams.none { it.exists() && it.readText().contains("PB-006 checkout awaits Sprint 2 implementation") }) {
+            "PB-006 checkout placeholder remains; replace it before packaging the application"
+        }
+    }
+}
+
+tasks.named("jar") { dependsOn(assertNoCheckoutPlaceholder) }
+tasks.named("bootJar") { dependsOn(assertNoCheckoutPlaceholder) }

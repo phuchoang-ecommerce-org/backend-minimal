@@ -18,6 +18,8 @@ class CartPortBoundaryTest {
         assertThat(commands).doesNotContain("adapter.out.jdbc.CartRepository");
         assertThat(queries).doesNotContain("adapter.out.jdbc.CartRepository");
         assertThat(commands).doesNotContain("import com.phucle.ecommerce.cart.CartSettings;");
+        assertThat(commands).doesNotContain("private final CartQueryService");
+        assertThat(commands).contains("private final GuestCartProjection");
         String controller=Files.readString(root.resolve("adapter/in/web/CartController.java"));
         assertThat(controller).doesNotContain("CartCommandService", "CartQueryService", "CartSettings");
     }

@@ -1,0 +1,45 @@
+task_brief:
+  title: Harden Cart actor boundary and checkout RED seams
+  feedback: inkdrop://note/VFS1WsFD
+  trace:
+    use_cases: [UC-02, UC-03, UC-04]
+    business_rules: [BR-03, BR-04, BR-06, BR-07]
+    architecture_rules: [ARCH-01, ARCH-03, ARCH-05, ARCH-10]
+  decisions:
+    - Cart read and write use cases receive TrustedActor, with null only for Guest commands.
+    - The Cart query handler implements an application projection interface used by the command handler.
+    - Checkout RED seams stay in production source, while jar and bootJar are blocked until their placeholders are replaced.
+    - Checkout application tests use constructor-injected fake ports; PostgreSQL tests own transaction proof.
+  ports_and_boundaries: "CurrentActor resolves JWT identity at WebMVC; application handlers check role before repository access; Ordering application owns checkout collaboration ports."
+  open_decisions: []
+scenarios:
+  - scenario_id: AT-UC-02-CART-DIRECT-ACTOR
+    level: application
+    actor: Seller with a Guest proof and arbitrary Account ID
+    given: "Direct CartCommandService calls, without WebMVC authorization."
+    when: setLine or removeLine
+    then: "ROLE_DENIED before any repository read/create/write; Guest proof is not a fallback."
+    persisted_state: unchanged
+    forbidden_effects: [member cart access, Guest fallback]
+    concurrency: not applicable
+    test: CartActorBoundaryTest.directSellerSetCannotReadOrCreateMemberCart and directSellerRemoveCannotReadMemberCart
+  - scenario_id: AT-UC-02-CART-DIRECT-QUERY
+    level: application
+    actor: Seller
+    given: "Direct CartQueryService call."
+    when: getMemberCart
+    then: "ROLE_DENIED before CartReadPort access."
+    persisted_state: unchanged
+    forbidden_effects: [foreign cart disclosure]
+    concurrency: not applicable
+    test: CartActorBoundaryTest.directSellerQueryCannotReadMemberCart
+automation:
+  test_source: src/test/java/com/phucle/ecommerce/cart/application/CartActorBoundaryTest.java
+  test_source_sha256: ceb393cc8bd82777730a4ab0cd8a22c87ff8a2579d78af35834b3abbec466d14
+  red_command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew test --tests com.phucle.ecommerce.cart.application.CartActorBoundaryTest --console=plain --no-daemon"
+  red_evidence: "2026-11-11: 3 tests discovered, 3 failed behaviorally. Direct commands returned RESOURCE_NOT_FOUND instead of ROLE_DENIED; direct query did not throw."
+  green_evidence: "2026-11-11: focused CartActorBoundaryTest passed; full check passed 24 unit/architecture and 25 PostgreSQL integration tests."
+  checkout_red_evidence: "13 discovered, 12 intentional behavioral failures, 1 passing role boundary; see S1-06-PB-006-checkout-red.yaml."
+  packaging_evidence: "assertNoCheckoutPlaceholder blocked jar and bootJar before packaging."
+  cleanup: "Disposable PostgreSQL containers removed; no persistent fixture data."
+status: "Cart GREEN; checkout RED"
