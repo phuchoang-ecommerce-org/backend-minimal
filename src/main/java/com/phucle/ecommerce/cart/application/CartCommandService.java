@@ -40,12 +40,12 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
     }
     @Transactional
     @Override public GuestCart getOrCreateGuest(String proof) {
-        Cart existing=repository.guest(proof==null?null:hash(proof),false);
-        if (existing!=null && existing.mergedInto()==null) return new GuestCart(queries.view(existing),null);
+        CartView existing=queries.existingGuest(proof==null?null:hash(proof));
+        if (existing!=null) return new GuestCart(existing,null);
         byte[] bytes=new byte[32]; RANDOM.nextBytes(bytes);
         String created=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         Cart cart=repository.createGuest(hash(created),Instant.now().plusSeconds(settings.ttlSeconds()));
-        return new GuestCart(queries.view(cart),created);
+        return new GuestCart(view(cart),created);
     }
     @Transactional
     @Override public CartView setLine(UUID member,String proof,UUID variant,int quantity,long expected) {
@@ -57,7 +57,7 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
         if (offer==null || !offer.purchasable() || stock==null || requested.value()>stock.onHand())
             throw new CartFailure(CartFailure.Code.ITEM_UNAVAILABLE);
         long before=cart.version();cart.setQuantity(variant,requested);repository.save(cart,before);
-        return queries.view(cart);
+        return view(cart);
     }
     @Transactional
     @Override public void removeLine(UUID member,String proof,UUID variant,long expected) {
@@ -109,5 +109,17 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(proof.getBytes(StandardCharsets.UTF_8))); }
         catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+    }
+    private CartView view(Cart cart) {
+        Set<UUID> ids=cart.lines().stream().map(l->l.variantId()).collect(java.util.stream.Collectors.toSet());
+        var current=offers.offers(ids);
+        List<CartView.Line> lines=new ArrayList<>(); java.math.BigDecimal total=java.math.BigDecimal.ZERO;
+        for (var line:cart.lines()) {
+            var offer=current.get(line.variantId());
+            if (offer==null) throw new IllegalStateException("Stored cart variant is missing");
+            lines.add(new CartView.Line(line.variantId(),line.quantity().value(),offer.priceUsd().toPlainString()));
+            total=total.add(offer.priceUsd().multiply(java.math.BigDecimal.valueOf(line.quantity().value())));
+        }
+        return new CartView(lines,total.setScale(2).toPlainString(),cart.version());
     }
 }

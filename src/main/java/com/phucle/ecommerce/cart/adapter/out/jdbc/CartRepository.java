@@ -43,13 +43,15 @@ class CartRepository implements CartRepositoryPort {
         return member(member,true);
     }
     @Override public void save(Cart cart, long previousVersion) {
+        int updated = jdbc.update("UPDATE marketplace.cart SET version=?,merged_into_cart_id=?,merged_at="
+                + "CASE WHEN ?::uuid IS NULL THEN NULL ELSE now() END WHERE id=? AND version=?",
+                cart.version(),cart.mergedInto(),cart.mergedInto(),cart.id(),previousVersion);
+        if (updated != 1) throw new com.phucle.ecommerce.cart.domain.CartFailure(
+                com.phucle.ecommerce.cart.domain.CartFailure.Code.STALE_VERSION);
         jdbc.update("DELETE FROM marketplace.cart_line WHERE cart_id=?",cart.id());
         for (CartLine line:cart.lines()) jdbc.update(
                 "INSERT INTO marketplace.cart_line(cart_id,variant_id,quantity) VALUES (?,?,?)",
                 cart.id(),line.variantId(),line.quantity().value());
-        jdbc.update("UPDATE marketplace.cart SET version=?,merged_into_cart_id=?,merged_at="
-                + "CASE WHEN ?::uuid IS NULL THEN NULL ELSE now() END WHERE id=? AND version=?",
-                cart.version(),cart.mergedInto(),cart.mergedInto(),cart.id(),previousVersion);
     }
     private Cart load(UUID id,CartOwner owner,long version,UUID mergedInto) {
         List<CartLine> lines=new ArrayList<>();

@@ -2,9 +2,10 @@ package com.phucle.ecommerce.configuration;
 
 import com.phucle.ecommerce.identity.api.InvalidCredentialsException;
 import com.phucle.ecommerce.identity.api.LoginAlreadyExistsException;
-import com.phucle.ecommerce.discovery.InvalidCursorException;
+import com.phucle.ecommerce.shared.InvalidCursorException;
 import com.phucle.ecommerce.discovery.PublicProductNotFoundException;
 import com.phucle.ecommerce.cart.domain.CartFailure;
+import com.phucle.ecommerce.identity.application.OwnedAddressNotFoundException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.MediaType;
@@ -48,6 +49,12 @@ class GlobalExceptionHandler {
 
     @ExceptionHandler(PublicProductNotFoundException.class)
     ResponseEntity<ApiProblem> publicProductNotFound() {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problems.create(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "The resource was not found"));
+    }
+
+    @ExceptionHandler(OwnedAddressNotFoundException.class)
+    ResponseEntity<ApiProblem> ownedAddressNotFound() {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problems.create(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "The resource was not found"));
     }

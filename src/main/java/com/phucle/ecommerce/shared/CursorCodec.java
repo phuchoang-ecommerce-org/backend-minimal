@@ -1,4 +1,5 @@
-package com.phucle.ecommerce.discovery;
+package com.phucle.ecommerce.shared;
+
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -10,19 +11,19 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
-final class CursorCodec {
+public final class CursorCodec {
     private final byte[] key;
-    CursorCodec(@Value("${marketplace.cursor.mac-secret:}") String secret) {
+    public CursorCodec(@Value("${marketplace.cursor.mac-secret:}") String secret) {
         key = secret.getBytes(StandardCharsets.UTF_8);
         requireKey();
     }
-    String encode(String resource, String filters, UUID boundary) {
+    public String encode(String resource, String filters, UUID boundary) {
         requireKey();
         String payload = "1|" + resource + "|" + fingerprint(filters) + "|" + boundary;
         String body = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
         return body + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(mac(body));
     }
-    UUID decode(String cursor, String resource, String filters) {
+    public UUID decode(String cursor, String resource, String filters) {
         requireKey();
         try {
             if (cursor == null || cursor.length() > 2048) throw new IllegalArgumentException();

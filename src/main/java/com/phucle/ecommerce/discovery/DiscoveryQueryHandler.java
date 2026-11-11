@@ -3,6 +3,7 @@ package com.phucle.ecommerce.discovery;
 import com.phucle.ecommerce.catalog.api.PublicCatalogReadPort;
 import com.phucle.ecommerce.inventory.api.PublicStockReadPort;
 import com.phucle.ecommerce.review.api.PublicReviewSummaryPort;
+import com.phucle.ecommerce.shared.CursorCodec;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
