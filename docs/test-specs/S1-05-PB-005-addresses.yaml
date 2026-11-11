@@ -1,0 +1,34 @@
+scenario_id: AT-UC-04-OWNED-ADDRESS
+title: Member creates and lists only owned checkout addresses
+task_brief:
+  backlog: S1-05 / PB-005
+  decisions: [Identity owns Address, JWT actor supplies owner, existing V1 address table needs no migration, shared cursor codec serves discovery and address lists]
+  file_scope: [Identity domain/application/JDBC/WebMVC, shared cursor codec, security route rules, address integration tests]
+  port_and_mapper_boundary: [AddressRepositoryPort is the outbound JDBC port, AddressWebMapper maps web DTOs and never creates Address aggregates]
+  expected_errors: [400 INVALID_REQUEST or INVALID_CURSOR, 401 AUTHENTICATION_REQUIRED, 403 ROLE_DENIED]
+  unresolved_questions: []
+source_revision: "OpenAPI SHA256 64cf5231d5f085571fb4ee15bf76b70f1c78aa86ceaefead24107fe5e8a70ae5; BA use-cases SHA256 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608; BA business-rules SHA256 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad"
+trace:
+  use_cases: [UC-04]
+  business_rules: [BR-06]
+  architecture_rules: [ARCH-01, ARCH-03, ARCH-04, ARCH-05, ARCH-06, ARCH-07]
+level: HTTP + PostgreSQL
+actor: Member with own and foreign address; Guest, Seller, Admin
+preconditions: [migrated disposable PostgreSQL, trusted JWT accounts]
+input: valid AddressValue, invalid fields, extra owner field, cursor and limit boundaries
+given: two distinct Member accounts with independently owned addresses
+when: POST /me/addresses and GET /me/addresses
+then:
+  returned_result_or_error: [201 Address, 200 AddressList, 400 INVALID_REQUEST or INVALID_CURSOR, 401 AUTHENTICATION_REQUIRED, 403 ROLE_DENIED]
+  persisted_state: [created address belongs to actor, list contains only actor rows]
+  forbidden_effects: [foreign address disclosure, owner override, invalid-row insert]
+fixtures: [random UUID accounts and addresses in disposable PostgreSQL]
+concurrency: not applicable to independent address creation
+automation:
+  test_class: com.phucle.ecommerce.identity.AddressHttpIntegrationTest
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew integrationTest --tests com.phucle.ecommerce.identity.AddressHttpIntegrationTest --console=plain --no-daemon"
+red_evidence: "2026-11-11: focused integrationTest ran against migrated PostgreSQL; memberCreatesAndListsOnlyOwnAddresses expected HTTP 201, received 403 at AddressHttpIntegrationTest.java:67. One test discovered and failed behaviorally."
+green_evidence: "2026-11-11: focused integrationTest passed four PostgreSQL-backed address tests; full ./gradlew check passed 16 unit/architecture and 24 PostgreSQL integration tests, zero failures. Reports: build/reports/tests/test and build/reports/tests/integrationTest."
+cleanup: dispose PostgreSQL container
+status: GREEN
+open_decisions: []

@@ -1,0 +1,27 @@
+scenario_id: AT-UC-04-OWNED-ADDRESS-CQRS
+title: Owned address queries and cart queries use read projections; stale cart writes fail before line replacement
+source_revision: "Phase 5 - Refactor Inkdrop note hTQ0_6le revision 2; OpenAPI SHA256 64cf5231d5f085571fb4ee15bf76b70f1c78aa86ceaefead24107fe5e8a70ae5"
+trace:
+  use_cases: [UC-02, UC-04]
+  business_rules: [BR-05, BR-06]
+  architecture_rules: [ARCH-01, ARCH-03, ARCH-04, ARCH-05, ARCH-06, ARCH-07]
+level: unit + architecture + HTTP + PostgreSQL
+actor: Member and Guest
+preconditions: [existing Phase 4 and Phase 5 tests pass, migrated disposable PostgreSQL]
+input: [Member cart query, Guest cart query, owned address list and lookup, stale cart version]
+given: [member and foreign address rows, cart with stale persisted version]
+when: [query cart or address, save cart with stale version]
+then:
+  returned_result_or_error: [same API response, owned address only, STALE_VERSION on conflicting save]
+  persisted_state: [no cart line replacement on stale save]
+  forbidden_effects: [aggregate loading by query handlers, foreign address disclosure, partial stale cart write]
+fixtures: [existing disposable PostgreSQL integration fixtures and mocked stale JDBC update]
+concurrency: stale version conflict is forced by a zero-row conditional update
+automation:
+  test_classes: [com.phucle.ecommerce.cart.adapter.out.jdbc.CartRepositoryStaleVersionTest, com.phucle.ecommerce.identity.AddressHttpIntegrationTest, com.phucle.ecommerce.architecture.AddressCartCqrsBoundaryTest]
+  command: "GRADLE_USER_HOME=/private/tmp/marketplace-gradle ./gradlew check --console=plain --no-daemon"
+red_evidence: "2026-11-11: CartRepositoryStaleVersionTest.staleUpdateRollsBackSave ran and failed a behavioral assertion because save returned normally when JDBC updated zero rows."
+green_evidence: "2026-11-11: focused cart/address tests passed; full ./gradlew check passed with zero failures."
+cleanup: dispose PostgreSQL containers
+status: GREEN
+open_decisions: []

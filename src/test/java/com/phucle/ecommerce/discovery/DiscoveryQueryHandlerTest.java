@@ -1,4 +1,5 @@
 package com.phucle.ecommerce.discovery;
+import com.phucle.ecommerce.shared.CursorCodec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
