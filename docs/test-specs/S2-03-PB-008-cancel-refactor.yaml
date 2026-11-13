@@ -1,0 +1,55 @@
+task_brief:
+  backlog: S2-03 / PB-008 refactor
+  use_cases: [UC-05]
+  business_rules: [BR-03, BR-06, BR-09]
+  architecture_rules: [ARCH-02, ARCH-04, ARCH-07]
+  feedback: inkdrop://note/yF-2oLJM
+  source_sha256:
+    use_cases: 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608
+    business_rules: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi: 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249
+  owning_context: Ordering
+  rehydration: Reject stored order or portion totals that disagree with immutable lines; reject CANCELLED with any PAID portion before command mutation.
+  command_projection: Cancellation holds the owned customer_order root lock, writes and reads its response projection in the same READ_COMMITTED transaction; immutable child rows and root-serialized payment state keep the view consistent. The handler does not invoke OwnOrderQueries.
+  module_api: No new cross-module API. Ordering owns all rehydration and projection SQL; Inventory and Audit stay behind their existing exported APIs.
+  files: Ordering domain/application/JDBC, shared problem response handler, cancellation PostgreSQL tests, architecture test.
+  migration: none
+  unresolved_decisions: []
+scenarios:
+  - id: AT-UC-05-REHYDRATE-ROOT-TOTAL
+    given: A persisted root total differs from the sum of its portions.
+    when: Owner requests cancellation.
+    then: Safe 500 INTERNAL_ERROR; no stock, status, version or audit write.
+    test: CancelOrderPostgresTest.corruptRootTotalIsRejectedBeforeMutation
+  - id: AT-UC-05-REHYDRATE-PORTION-TOTAL
+    given: A persisted portion total differs from its line sums.
+    when: Owner requests cancellation.
+    then: Safe 500 INTERNAL_ERROR; no stock, status, version or audit write.
+    test: CancelOrderPostgresTest.corruptPortionTotalIsRejectedBeforeMutation
+  - id: AT-UC-05-REHYDRATE-IMPOSSIBLE-STATE
+    given: A CANCELLED order has a PAID portion in persisted rows.
+    when: Owner repeats cancellation.
+    then: Safe 500 INTERNAL_ERROR; no additional stock, status, version or audit write.
+    test: CancelOrderPostgresTest.cancelledOrderWithPaidPortionIsRejected
+  - id: AT-UC-05-COMMAND-PROJECTION-BOUNDARY
+    given: The cancellation handler is wired to the HTTP route.
+    when: Inspecting handler dependencies.
+    then: It uses an explicit command-result projection port and no OwnOrderQueries handler.
+    test: CancelOrderCommandBoundaryTest.commandDoesNotCallQueryUseCase
+  - id: AT-UC-05-REAL-COMMAND-RACES
+    given: Phase 4 mark-paid command is available.
+    when: Cancellation and mark-paid each win the shared root lock in separate races.
+    then: Exactly one legal outcome per race; verify stock, state and audit after commit.
+    test: Phase 4 or Phase 6 real-command race test, pending mark-paid implementation.
+evidence:
+  date: 2026-11-13
+  base_revision: e4fcb02
+  test_source_sha256: 272096719ce80e5d1cf3383313c86957a89beb221e25b4c05678cd7c7096a520
+  boundary_test_sha256: 8c3591196f65762ca862892c4a54e11b8d9dba2a6beacc8ef938501b241298cf
+  structural_red: "./gradlew test --tests com.phucle.ecommerce.architecture.CancelOrderCommandBoundaryTest --console=plain --no-daemon: one test, one structural failure because the cancellation handler injected OwnOrderQueries."
+  behavioral_red: "./gradlew integrationTest --tests com.phucle.ecommerce.ordering.CancelOrderPostgresTest --console=plain --no-daemon: nine PostgreSQL tests, three new behavioral failures; each expected 500 but got 200 for corrupt root total, corrupt portion total, or CANCELLED with PAID portion. Six prior cases passed."
+  focused_green: "./gradlew test --tests com.phucle.ecommerce.architecture.CancelOrderCommandBoundaryTest integrationTest --tests com.phucle.ecommerce.ordering.CancelOrderPostgresTest --console=plain --no-daemon: BUILD SUCCESSFUL; one structural and nine PostgreSQL cancellation tests."
+  full_green: "./gradlew check jar bootJar --console=plain --no-daemon --continue: BUILD SUCCESSFUL; unit/architecture 27, integration 40, checkoutRed 16; zero failures/skips, jar and bootJar built."
+  implementation_revision: "uncommitted working tree based on e4fcb02"
+  migration: none
+  deferred_evidence: "Both legal lock winners through real cancellation and mark-paid commands remain for Phase 4/6 because mark-paid command is not yet implemented. Existing test proves only SQL-simulated payment-first lock protocol."

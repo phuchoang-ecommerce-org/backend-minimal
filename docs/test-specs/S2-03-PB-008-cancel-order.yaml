@@ -1,0 +1,63 @@
+task_brief:
+  backlog: S2-03 / PB-008
+  use_cases: [UC-05]
+  business_rules: [BR-03, BR-06, BR-09]
+  architecture_rules: [ARCH-02, ARCH-04, ARCH-07]
+  owning_context: Ordering
+  domain: CustomerOrder.cancel owns the all-pending invariant and repeat-cancel decision.
+  module_api: Ordering locks and writes customer_order; Inventory exports a stock-restore operation; Audit exports cancellation append.
+  command: Member-scoped order lookup and customer_order FOR UPDATE, then reload portions; restore variant quantities in sorted UUID order, update root and append audit in one transaction.
+  response: Existing immutable OwnOrderQueries.OrderView mapped to the OpenAPI Order shape; 200 owner/repeat, 404 foreign/missing, 409 partly paid, 401 Guest, 403 Seller.
+  lock_order: customer_order root, then stock rows in ascending variant ID; Phase 4 mark-paid must take the same root lock before reading portions.
+  migration: none
+  files: Ordering domain/application/JDBC/Web, Inventory api/JDBC, Audit api/JDBC, integration tests.
+  unresolved_decisions: []
+  source_sha256:
+    use_cases: 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608
+    business_rules: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi: 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249
+    cancellation_sequence: ef6bcb1da60de1222f69ad46b08a5f6357c8cd7906ce5270c958086a85c60924
+scenarios:
+  - id: AT-UC-05-CANCEL-RESTORE-ONCE
+    given: An owned placed order with two pending portions and stock reduced by checkout.
+    when: Member cancels twice.
+    then: Both responses are 200 CANCELLED; stock and version rise once per variant; exactly one cancellation audit exists; portion payment remains pending.
+    test: CancelOrderPostgresTest.cancelRestoresOnceAndReplayHasNoEffects
+  - id: AT-UC-05-CANCEL-OWNERSHIP
+    given: An order owned by another Member.
+    when: Member requests cancellation for that order or an unknown order.
+    then: Both are 404 and no stock, order or audit row changes.
+    test: CancelOrderPostgresTest.foreignAndMissingAreHidden
+  - id: AT-UC-05-CANCEL-PAID
+    given: One seller portion already PAID.
+    when: Owner requests cancellation.
+    then: 409 ILLEGAL_ORDER_STATE with no stock, order or audit changes.
+    test: CancelOrderPostgresTest.paidPortionBlocksCancellation
+  - id: AT-UC-05-CANCEL-AUDIT-ROLLBACK
+    given: Audit append fails after stock and root update.
+    when: Owner requests cancellation.
+    then: Error response and all writes roll back.
+    test: CancelOrderPostgresTest.auditFailureRollsBackEverything
+  - id: AT-UC-05-CANCEL-PAYMENT-RACE
+    given: A payment transaction holds the customer_order root lock.
+    when: Cancellation races with payment commit.
+    then: Cancellation waits, sees PAID after lock and returns 409 without restoration.
+    test: CancelOrderPostgresTest.paymentWinsRootLock
+  - id: AT-UC-05-CANCEL-ROLE
+    given: Guest and Seller actors.
+    when: They request cancellation.
+    then: Guest gets 401 and Seller gets 403.
+    test: CancelOrderPostgresTest.requiresMember
+evidence:
+  date: 2026-11-13
+  base_revision: e4fcb02
+  test_source_sha256: fa2a0fc68e491661d04631c8948e6130c5446a9638737816078a500fc1ef6c92
+  red: "./gradlew integrationTest --tests com.phucle.ecommerce.ordering.CancelOrderPostgresTest --console=plain --no-daemon: six PostgreSQL tests executed, six behavioral failures; owner expected 200/404/409/500 and received 403 because the route was absent. This was after fixing fixture arithmetic and a sandbox Gradle-cache access blocker."
+  focused_green: "Same focused command after implementation: six tests, zero failures; corrected audit-failure constraint to target only its fixture order."
+  full_green: "./gradlew check jar bootJar --console=plain --no-daemon --continue: BUILD SUCCESSFUL; unit/architecture 26, integration 37, checkoutRed 16; zero failures and skips; jar and bootJar built."
+  implementation_revision: "uncommitted working tree based on e4fcb02"
+  migration: none
+  http: "200 owner/repeat, 404 foreign/missing, 409 partly paid, 401 Guest, 403 Seller; audit write failure 500 with complete rollback."
+  race: "Two independent PostgreSQL connections; payment holds the parent FOR UPDATE lock, cancellation is observed waiting in pg_stat_activity, payment commits PAID, cancellation returns 409 with stock unchanged. Phase 4 must use the same parent lock."
+  blockers: []
+  next: "Phase 4 mark-paid may reuse OrderWritePort.lockOwned's root-lock protocol, but must resolve trusted SellerShop ID and owner-filter the portion first."
