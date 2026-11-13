@@ -20,6 +20,7 @@ Use only schema `marketplace`; PostgreSQL is the persistent store. Keep MapStruc
 ## Required workflow
 
 - For a business feature or fix, use `$ecp-spec-to-task` before implementation.
+- For backend business implementation, use `$ecp-backend-slice` to build domain behavior, owner-module APIs, command/query ports, and adapters in dependency order. For list/detail queries, read the Read Projection Boundary in `../docs-minimal/SolutionArchitecture/backend/2-application-architecture/2.2-application-architecture/2.1.2-application-architecture.md`.
 - Write the scenario and automated test source before production behavior. A valid RED result is a failing behavioral assertion—not a compile, dependency, network, or zero-test failure. Do not begin dependent implementation until the RED evidence is recorded.
 - Use `$ecp-postgres-change` for SQL, Flyway, JDBC, locking, cursor, or search work; never edit an applied migration.
 - Use `$ecp-api-security-contract` for HTTP, JWT, authorization, DTO, error, cursor, or expected-version changes.
