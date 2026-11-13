@@ -1,33 +1,27 @@
 package com.phucle.ecommerce.ordering.domain;
 
-import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
-/** Compile-only checkout seam for the Sprint 1 RED contract. */
+/** Assembles a placed aggregate from transaction-protected checkout facts. */
 public final class OrderFactory {
-    private OrderFactory() {
-    }
+    private OrderFactory() {}
 
-    public record Line(UUID productId, UUID sellerId, UUID variantId, String productTitle, String sku,
-                       int quantity, BigDecimal unitPriceUsd, BigDecimal discountUsd) {
-    }
-
-    public record AddressSnapshot(String recipient, String addressLine, String locality, String postalCode, String country) {
-    }
-
-    public record PurchasedLine(Line source, BigDecimal lineTotalUsd) {
-    }
-
-    public record Portion(UUID sellerId, String paymentStatus, BigDecimal totalUsd, List<PurchasedLine> lines) {
-        public Portion { lines = List.copyOf(lines); }
-    }
-
-    public record Draft(UUID memberId, String status, AddressSnapshot address, BigDecimal totalUsd, List<Portion> portions) {
-        public Draft { portions = List.copyOf(portions); }
-    }
-
-    public static Draft place(UUID memberId, AddressSnapshot address, List<Line> lines) {
-        throw new UnsupportedOperationException("PB-006 checkout awaits Sprint 2 implementation");
+    public static CustomerOrder place(UUID memberId, AddressSnapshot address, List<OrderPlacementLine> lines) {
+        if (memberId == null || address == null || lines == null || lines.isEmpty())
+            throw new IllegalArgumentException("Empty checkout");
+        Map<UUID, List<OrderLine>> bySeller = new LinkedHashMap<>();
+        for (OrderPlacementLine line : lines) {
+            if (line == null) throw new IllegalArgumentException("Invalid seller line");
+            bySeller.computeIfAbsent(line.sellerId(), ignored -> new ArrayList<>())
+                    .add(OrderLine.create(PurchasedLineSnapshot.priced(line.productId(), line.sellerId(), line.variantId(),
+                            line.productTitle(), line.sku(), line.quantity(), line.unitPriceUsd(), line.discountUsd())));
+        }
+        List<SellerOrder> portions = bySeller.entrySet().stream()
+                .map(entry -> SellerOrder.pending(entry.getKey(), entry.getValue())).toList();
+        return CustomerOrder.placed(memberId, address, portions);
     }
 }

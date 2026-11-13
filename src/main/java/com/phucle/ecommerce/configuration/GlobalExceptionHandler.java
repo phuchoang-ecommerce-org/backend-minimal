@@ -5,6 +5,7 @@ import com.phucle.ecommerce.identity.api.LoginAlreadyExistsException;
 import com.phucle.ecommerce.shared.InvalidCursorException;
 import com.phucle.ecommerce.discovery.PublicProductNotFoundException;
 import com.phucle.ecommerce.cart.domain.CartFailure;
+import com.phucle.ecommerce.ordering.application.OrderFailure;
 import com.phucle.ecommerce.identity.application.OwnedAddressNotFoundException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,14 +18,32 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.dao.DataAccessException;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private final ApiProblemFactory problems;
 
     GlobalExceptionHandler(ApiProblemFactory problems) {
         this.problems = problems;
+    }
+
+    @ExceptionHandler(OrderFailure.class)
+    ResponseEntity<ApiProblem> orderError(OrderFailure exception) {
+        HttpStatus status = switch (exception.code()) {
+            case "RESOURCE_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+            case "ROLE_DENIED" -> HttpStatus.FORBIDDEN;
+            default -> HttpStatus.CONFLICT;
+        };
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problems.create(status, exception.code(), "The order request could not be completed"));
     }
 
     @ExceptionHandler(CartFailure.class)
@@ -67,7 +86,7 @@ class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
-            MethodArgumentTypeMismatchException.class})
+            MethodArgumentTypeMismatchException.class, MissingRequestHeaderException.class})
     ResponseEntity<ApiProblem> invalidRequest(Exception exception) {
         Map<String, String> fields = new LinkedHashMap<>();
         if (exception instanceof MethodArgumentNotValidException validation) {
@@ -78,6 +97,19 @@ class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problems.create(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "The request is invalid", fields));
+    }
+
+    @ExceptionHandler(TransactionSystemException.class)
+    ResponseEntity<ApiProblem> uncertainCommit() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problems.create(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", "Retry the same order intent"));
+    }
+
+    @ExceptionHandler(DataAccessException.class)
+    ResponseEntity<ApiProblem> orderPersistenceError(DataAccessException exception) {
+        log.error("Order persistence failed", exception);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problems.create(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "The request could not be completed"));
     }
 
     @ExceptionHandler(LoginAlreadyExistsException.class)
