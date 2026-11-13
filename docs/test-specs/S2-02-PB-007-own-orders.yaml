@@ -1,0 +1,78 @@
+task_brief:
+  backlog: S2-02 / PB-007
+  use_cases: [UC-04, UC-05]
+  business_rules: [BR-02, BR-06, BR-08]
+  architecture_rules: [ARCH-02, ARCH-04, ARCH-07]
+  source_sha256:
+    use_cases: 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608
+    business_rules: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi: 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249
+    cursor_design: e74e77740a44dc5118b48d4ae8c9c5c04faf18cd0f23a823fe416e353e646e06
+  owning_context: Ordering
+  domain: CustomerOrder owns payment aggregation; immutable order address and line snapshots are read facts.
+  module_api: No cross-module API; Ordering reads only its own order, portion, line, and address-snapshot tables.
+  cqrs: Separate OwnOrderQueries input view and OwnOrderReadPort projection; handler maps between them, with no aggregate hydration or writes.
+  page_hydration: Select limit-plus-one owned IDs, then batch roots, addresses, portions and lines for selected IDs; five ordering SELECTs at page size 1 or 100.
+  consistency: PostgreSQL REPEATABLE READ read-only transaction gives one committed snapshot per detail/page response.
+  cursor: MAC-bound to resource and Member, exact created_at plus order ID; keyset descending, limit plus one.
+  route: GET /orders/{orderId} and GET /orders, Member JWT, 200; missing/foreign 404; invalid cursor/limit 400.
+  files: Ordering application query port/handler, Ordering JDBC read adapter, Ordering WebMVC controller and mapper, shared cursor codec.
+  migration: none; V1 has member cursor index and immutable snapshot tables.
+  unresolved_decisions: []
+
+scenarios:
+  - id: AT-UC-04-OWN-ORDER-DETAIL
+    given: Committed order and a different Member; current catalog/address values change.
+    when: Owner requests detail; foreign Member and owner request missing detail.
+    then: Owner sees original address/title/SKU/prices and current portions; both inaccessible IDs are 404.
+    persistence: Query leaves all rows unchanged.
+    test: OwnOrdersPostgresTest.detailUsesSnapshotsAndHidesForeignOrder
+  - id: AT-UC-04-OWN-ORDER-PAYMENT
+    given: Two portions, one PAID and then both PAID.
+    when: Owner requests detail.
+    then: Aggregate paymentStatus is PENDING_PAYMENT until the final portion is PAID.
+    test: OwnOrdersPostgresTest.paymentProjectionRequiresEveryPortionPaid
+  - id: AT-QUERY-ORDER-CURSOR
+    given: Same-created-at orders for one Member and an order for another Member.
+    when: Owner pages with limit 1; cursor is modified, reused by another Member, or moved beyond the end.
+    then: Stable descending IDs without duplicates; foreign order absent; bad cursors 400 INVALID_CURSOR; empty page has null cursor.
+    test: OwnOrdersPostgresTest.pageUsesMemberBoundTimestampCursor
+  - id: AT-UC-04-OWN-ORDER-ROLE
+    given: Guest and Seller request the Member order endpoints.
+    when: Requests are sent without Member JWT.
+    then: Guest is 401 and Seller is 403.
+    test: OwnOrdersPostgresTest.queryRequiresMember
+  - id: AT-UC-04-OWN-ORDER-PORT-BOUNDARY
+    given: Query input port and Web mapper source.
+    when: Inspecting public return signatures and mapper dependencies.
+    then: Neither exposes OwnOrderReadPort nested types.
+    test: OwnOrderReadBoundaryTest.inputApiAndWebMapperDoNotExposeOutputPortTypes
+  - id: AT-UC-04-OWN-ORDER-BATCH
+    given: One Member with 100 orders and one portion per order.
+    when: Requesting pages of size 1 and 100.
+    then: Both pages use at most five Ordering SELECTs and each item matches the full Order response shape.
+    test: OwnOrdersPostgresTest.pageHydratesMaximumSizeInBoundedQueriesAndMatchesOrderSchema
+  - id: AT-UC-04-OWN-ORDER-SNAPSHOT-CONSISTENCY
+    given: A committed pending order and two independent PostgreSQL connections.
+    when: Payment commits after root read but before portion read.
+    then: First response remains entirely pending; next response sees paid.
+    test: OwnOrdersPostgresTest.detailUsesOneCommittedSnapshotWhenPaymentCommitsBetweenReads
+
+evidence:
+  date: 2026-11-13
+  base_revision: 211e2ac
+  test_source_sha256: 783ae50bd87cba5c623e1551635a21c13118d52420e8f83d99f86edf96edefd8
+  boundary_test_sha256: 2fbf8427a895b76f80987bc187874ff252b8db81ec6db2e1ae4df15ea3ebfae2
+  red: "./gradlew integrationTest --tests com.phucle.ecommerce.ordering.OwnOrdersPostgresTest: 4 tests, 3 behavioral failures (expected 200, got 403 at owner GET route); Guest/Seller boundary passed. Initial fixture duplicate-SKU failure was corrected and is not RED."
+  green_command: "./gradlew check jar bootJar --console=plain --no-daemon --continue"
+  green: "Original Phase 2 gate: BUILD SUCCESSFUL; test 25, integrationTest 29 (including four Phase 2 tests), checkoutRed 16; zero failures and zero skipped. jar and bootJar built."
+  implementation_revision: "uncommitted working tree based on 211e2ac"
+  migration: none
+  http: "200 owner detail/page, 404 foreign/missing detail, 400 invalid/tampered/other-Member cursor or invalid limit, 401 Guest, 403 Seller."
+  blockers: []
+  next: "Phase 3 may use the owner-filtered current order projection; cancellation still requires a root lock and transactional write path."
+  refactor_red:
+    structural: "./gradlew test --tests com.phucle.ecommerce.architecture.OwnOrderReadBoundaryTest: 1 test, 1 structural failure at input-port return type."
+    postgres: "./gradlew integrationTest --tests com.phucle.ecommerce.ordering.OwnOrdersPostgresTest: 6 tests, 2 failures; max page issued 301 Ordering SELECTs versus <=5, and interleaved payment changed first response to PAID versus expected PENDING_PAYMENT. Four existing behavior tests passed."
+  refactor_green: "./gradlew check jar bootJar --console=plain --no-daemon --continue: BUILD SUCCESSFUL; test 26, integrationTest 31 (six Phase 2 PostgreSQL tests), checkoutRed 16; zero failures and zero skipped. jar and bootJar built."
+  refactor_http: "Full Order response shape and representative field values verified on a 100-item page; 1-item and 100-item pages each use at most five Ordering SELECTs. Interleaved committed payment remains invisible until the next request."
