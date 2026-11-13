@@ -3,6 +3,7 @@ package com.phucle.ecommerce.shared;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
 import javax.crypto.Mac;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class CursorCodec {
+    public record TimedBoundary(Instant createdAt, UUID id) {}
     private final byte[] key;
     public CursorCodec(@Value("${marketplace.cursor.mac-secret:}") String secret) {
         key = secret.getBytes(StandardCharsets.UTF_8);
@@ -35,6 +37,29 @@ public final class CursorCodec {
             if (values.length != 4 || !"1".equals(values[0]) || !resource.equals(values[1]) || !fingerprint(filters).equals(values[2]))
                 throw new IllegalArgumentException();
             return UUID.fromString(values[3]);
+        } catch (RuntimeException ex) { throw new InvalidCursorException(); }
+    }
+    public String encodeTimed(String resource, String filters, Instant createdAt, UUID boundary) {
+        requireKey();
+        String payload = "2|" + resource + "|" + fingerprint(filters) + "|" + createdAt + "|" + boundary;
+        String body = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+        return body + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(mac(body));
+    }
+    public TimedBoundary decodeTimed(String cursor, String resource, String filters) {
+        requireKey();
+        try {
+            if (cursor == null || cursor.isEmpty() || cursor.length() > 2048) throw new IllegalArgumentException();
+            String[] parts = cursor.split("\\.", -1);
+            if (parts.length != 2 || !MessageDigest.isEqual(mac(parts[0]), Base64.getUrlDecoder().decode(parts[1]))
+                    || !Base64.getUrlEncoder().withoutPadding().encodeToString(Base64.getUrlDecoder().decode(parts[1])).equals(parts[1]))
+                throw new IllegalArgumentException();
+            byte[] bytes = Base64.getUrlDecoder().decode(parts[0]);
+            if (!Base64.getUrlEncoder().withoutPadding().encodeToString(bytes).equals(parts[0]))
+                throw new IllegalArgumentException();
+            String[] values = new String(bytes, StandardCharsets.UTF_8).split("\\|", -1);
+            if (values.length != 5 || !"2".equals(values[0]) || !resource.equals(values[1])
+                    || !fingerprint(filters).equals(values[2])) throw new IllegalArgumentException();
+            return new TimedBoundary(Instant.parse(values[3]), UUID.fromString(values[4]));
         } catch (RuntimeException ex) { throw new InvalidCursorException(); }
     }
     private void requireKey() {

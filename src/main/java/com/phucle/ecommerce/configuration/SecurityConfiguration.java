@@ -44,6 +44,7 @@ class SecurityConfiguration {
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/categories", "/products", "/products/{productId}").permitAll()
                         .requestMatchers("/cart", "/cart/lines/**").permitAll()
                         .requestMatchers("/me/addresses").hasRole("MEMBER")
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/orders", "/orders/{orderId}").hasRole("MEMBER")
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/orders").hasRole("MEMBER")
                         .anyRequest().denyAll())
                 .build();
