@@ -127,6 +127,7 @@ tasks.register<Test>("checkoutRed") {
 
 tasks.named("check") {
     dependsOn(integrationTest)
+    dependsOn("checkoutRed")
 }
 
 val assertNoCheckoutPlaceholder = tasks.register("assertNoCheckoutPlaceholder") {

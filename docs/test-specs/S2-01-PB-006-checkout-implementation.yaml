@@ -1,0 +1,47 @@
+task_brief:
+  backlog: S2-01 / PB-006
+  use_cases: [UC-04]
+  business_rules: [BR-01, BR-02, BR-03, BR-04, BR-05, BR-06, BR-07]
+  architecture_rules: [ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05, ARCH-06, ARCH-07, ARCH-10]
+  scenario_source: docs/test-specs/S1-06-PB-006-checkout-red.yaml
+  source_sha256:
+    use_cases: 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608
+    business_rules: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi: 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249
+    checkout_sequence: 26df84f010d729c52398f9ea97bd17a661f119fb073b1bceabb15087282ff040
+  decisions:
+    - No schema migration; V1 already has the order, snapshot, stock version, audit and unique Member/key structures.
+    - A PostgreSQL transaction advisory lock serializes each Member/key before cart and address reads.
+    - One PlaceCodOrder handler coordinates the transaction through each owning module's exported API.
+    - Ordering JDBC accesses only Ordering tables; an architecture source test guards this boundary.
+    - CustomerOrder is the aggregate root; SellerOrder and OrderLine are separate entities, while OrderPlacementLine, snapshots and MoneyUsd are value objects. OrderFactory only assembles a placed root from validated facts.
+    - OrderWritePort and CreationSnapshotReadPort separate writes from immutable creation replay.
+    - No configured voucher is valid in this demo slice; unknown codes fail without retaining an intent.
+  unresolved_decisions: []
+
+traceability:
+  domain: [AT-UC-04-DOMAIN-GROUPING, AT-UC-04-DOMAIN-DISCOUNT, AT-UC-04-DOMAIN-EMPTY, ORDERING-MODEL-SHAPE, ORDERING-CANCEL-PAYMENT-GUARDS]
+  application: [AT-UC-04-APPLICATION-PLACE]
+  postgres_http: [AT-UC-04-TWO-SELLER-COMMIT, AT-UC-04-ADDRESS-OWNERSHIP, AT-UC-04-VERSION-VOUCHER, AT-UC-04-LISTING-ELIGIBILITY, AT-UC-04-ROLE-BOUNDARY, AT-UC-04-REPLAY-CONFLICT, AT-UC-04-LAST-UNIT-RACE, AT-UC-04-SAME-KEY-RACE, AT-UC-04-LATE-ROLLBACK]
+  test_source: src/checkoutRed/java/com/phucle/ecommerce/ordering/
+  architecture_test: src/test/java/com/phucle/ecommerce/architecture/CheckoutTableOwnershipTest.java
+  test_source_sha256:
+    CheckoutApplicationRedTest.java: b70a9c19bfdef09632454632c0775bdf602baf1ca3130f22145c789994fe2c6c
+    CheckoutDomainRedTest.java: 442e4906ad8a64db8f5c5ece0cba16915aa6fcd1b77a870e8fc215c424aa7d6d
+    CheckoutPostgresRedTest.java: d3e45c26ab85a7bb4123f48304bb117c0383fa4b86e872ec54c3dd9328323a93
+    CheckoutTableOwnershipTest.java: 91dd6e5fb13fa3547d5570fc202d54ddcf43bdbab1cbcf5880049dac8e526716
+    OrderingModelShapeTest.java: 9a40aefbed542f5f06f087cdb6193aca9ccb69369206360f6a4baefa4177cfdc
+    OrderingDomainModelTest.java: 760542f84c1e7807052a0c4f26583d729efa513966adec6c11840f48d3da1491
+
+evidence:
+  date: 2026-11-13
+  base_revision: 5ea0b3e
+  implementation: uncommitted working tree
+  red: "Fresh ./gradlew check checkoutRed --continue: baseline check passed (24 unit/architecture and 25 PostgreSQL tests); checkoutRed discovered 13, with 12 behavioral failures and 1 role-boundary pass."
+  green_command: "./gradlew check jar bootJar --console=plain --no-daemon --continue"
+  refactor_red: "CheckoutTableOwnershipTest failed a behavioral assertion on cross-module SQL; the domain test failed its portion/line ID assertion; OrderingModelShapeTest failed its top-level aggregate assertion before domain extraction."
+  green_result: "BUILD SUCCESSFUL after domain extraction and factory cleanup; test 25, integrationTest 25, checkoutRed 16; zero failures and zero skipped. jar and bootJar built."
+  reports: [build/reports/tests/test/index.html, build/reports/tests/integrationTest/index.html, build/reports/tests/checkoutRed/index.html]
+  migration: none
+  limitation: "Valid configured voucher redemption belongs to PB-012."
+  next: "Phase 2 may consume the immutable order snapshots for Member order queries."
