@@ -18,4 +18,11 @@ class JdbcCheckoutStock implements CheckoutStock {
         }
         return true;
     }
+    @Override public void restore(Map<UUID, Integer> quantities) {
+        for (UUID variantId : quantities.keySet().stream().sorted().toList()) {
+            int amount = quantities.get(variantId);
+            if (amount <= 0 || jdbc.update("UPDATE marketplace.stock SET on_hand=on_hand+?,version=version+1 WHERE variant_id=?",
+                    amount, variantId) != 1) throw new IllegalStateException("Unable to restore order stock");
+        }
+    }
 }

@@ -6,6 +6,7 @@ import com.phucle.ecommerce.shared.InvalidCursorException;
 import com.phucle.ecommerce.discovery.PublicProductNotFoundException;
 import com.phucle.ecommerce.cart.domain.CartFailure;
 import com.phucle.ecommerce.ordering.application.OrderFailure;
+import com.phucle.ecommerce.ordering.domain.OrderStateCorruption;
 import com.phucle.ecommerce.identity.application.OwnedAddressNotFoundException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -33,6 +34,13 @@ class GlobalExceptionHandler {
 
     GlobalExceptionHandler(ApiProblemFactory problems) {
         this.problems = problems;
+    }
+
+    @ExceptionHandler(OrderStateCorruption.class)
+    ResponseEntity<ApiProblem> corruptOrder(OrderStateCorruption exception) {
+        log.error("Persisted order state is inconsistent", exception);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problems.create(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "The request could not be completed"));
     }
 
     @ExceptionHandler(OrderFailure.class)

@@ -1,6 +1,7 @@
 package com.phucle.ecommerce.ordering.adapter.out.jdbc;
 
 import com.phucle.ecommerce.ordering.application.OwnOrderReadPort;
+import com.phucle.ecommerce.ordering.application.CancelOrderResultReadPort;
 import com.phucle.ecommerce.ordering.domain.AddressSnapshot;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -9,14 +10,19 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-class JdbcOwnOrderRead implements OwnOrderReadPort {
+class JdbcOwnOrderRead implements OwnOrderReadPort, CancelOrderResultReadPort {
     private final JdbcTemplate jdbc;
     JdbcOwnOrderRead(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+    @Override public Optional<Order> findOwned(UUID memberId, UUID orderId) {
+        return findOwnedAll(memberId, List.of(orderId)).stream().findFirst();
+    }
 
     @Override public List<Order> findOwnedAll(UUID memberId, List<UUID> orderIds) {
         if (orderIds.isEmpty()) return List.of();

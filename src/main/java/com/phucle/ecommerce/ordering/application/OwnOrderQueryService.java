@@ -19,7 +19,7 @@ public class OwnOrderQueryService implements OwnOrderQueries {
     public OrderView detail(TrustedActor actor, UUID orderId) {
         UUID memberId = member(actor);
         if (orderId == null) throw new IllegalArgumentException("Invalid order ID");
-        return reads.findOwnedAll(memberId, List.of(orderId)).stream().findFirst().map(this::view)
+        return reads.findOwnedAll(memberId, List.of(orderId)).stream().findFirst().map(OwnOrderViewMapper::toView)
                 .orElseThrow(() -> new OrderFailure("RESOURCE_NOT_FOUND"));
     }
     @Override @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -33,7 +33,7 @@ public class OwnOrderQueryService implements OwnOrderQueries {
         boolean hasNext = rows.size() > limit;
         List<OwnOrderReadPort.Boundary> selected = hasNext ? rows.subList(0, limit) : rows;
         List<OrderView> items = reads.findOwnedAll(memberId, selected.stream().map(OwnOrderReadPort.Boundary::id).toList())
-                .stream().map(this::view).toList();
+                .stream().map(OwnOrderViewMapper::toView).toList();
         String next = hasNext ? cursors.encodeTimed("member-orders", memberId.toString(),
                 selected.getLast().createdAt(), selected.getLast().id()) : null;
         return new Page(items, next, hasNext);
@@ -41,19 +41,5 @@ public class OwnOrderQueryService implements OwnOrderQueries {
     private UUID member(TrustedActor actor) {
         if (actor == null || !"MEMBER".equals(actor.operationalRole())) throw new OrderFailure("ROLE_DENIED");
         return actor.accountId();
-    }
-    private OrderView view(OwnOrderReadPort.Order order) {
-        var address = order.address();
-        AddressView addressView = new AddressView(address.recipient(), address.addressLine(), address.locality(),
-                address.postalCode(), address.country());
-        List<SellerOrderView> portions = order.sellerOrders().stream().map(portion -> {
-            List<PurchasedLineView> lines = portion.lines().stream().map(line -> new PurchasedLineView(
-                    line.productId(), line.variantId(), line.productName(), line.sku(), line.quantity(),
-                    line.unitPriceUsd(), line.discountUsd(), line.totalUsd())).toList();
-            return new SellerOrderView(portion.id(), portion.sellerId(), portion.paymentStatus(), portion.totalUsd(),
-                    portion.createdAt(), portion.orderId(), portion.status(), lines, portion.paidAt());
-        }).toList();
-        return new OrderView(order.id(), order.memberId(), order.status(), order.paymentStatus(), order.totalUsd(),
-                portions, order.createdAt(), addressView, order.discountUsd(), order.paymentMethod(), order.voucherCode());
     }
 }

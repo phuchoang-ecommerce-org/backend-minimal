@@ -9,4 +9,6 @@ public interface OrderWritePort {
     void serializeIntent(UUID memberId, String key);
     Optional<Existing> findExisting(UUID memberId, String key);
     void save(String key, String fingerprint, CustomerOrder order);
+    Optional<CustomerOrder> lockOwned(UUID memberId, UUID orderId);
+    void saveCancellation(CustomerOrder order);
 }

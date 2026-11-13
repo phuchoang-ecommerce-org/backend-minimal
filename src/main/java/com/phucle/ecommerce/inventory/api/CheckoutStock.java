@@ -5,4 +5,5 @@ import java.util.UUID;
 
 public interface CheckoutStock {
     boolean decrease(Map<UUID, Integer> quantities);
+    void restore(Map<UUID, Integer> quantities);
 }

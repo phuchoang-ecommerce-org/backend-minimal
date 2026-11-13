@@ -13,4 +13,8 @@ class JdbcOrderAudit implements OrderAudit {
         jdbc.update("INSERT INTO marketplace.audit_entry(id,actor_id,action,resource_type,resource_id,correlation_id) "
                 + "VALUES (?,?,'ORDER_PLACED','CUSTOMER_ORDER',?,?)", UUID.randomUUID(), actorId, orderId, UUID.randomUUID());
     }
+    @Override public void cancelled(UUID actorId, UUID orderId) {
+        jdbc.update("INSERT INTO marketplace.audit_entry(id,actor_id,action,resource_type,resource_id,correlation_id) "
+                + "VALUES (?,?,'ORDER_CANCELLED','CUSTOMER_ORDER',?,?)", UUID.randomUUID(), actorId, orderId, UUID.randomUUID());
+    }
 }
