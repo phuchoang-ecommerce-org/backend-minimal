@@ -1,0 +1,17 @@
+id: S2-07-PB-019
+title: Disposable HTTP demo rehearsal
+trace:
+  product_backlog: PB-019
+  sprint_backlog: S2-07
+  use_cases: [UC-01, UC-02, UC-03, UC-04, UC-05, UC-06, UC-07]
+  architecture: [3.9-jwt-access-token-rbac, 3.11-docker-compose, runtime-profiles]
+level: live HTTP + disposable PostgreSQL
+given: A uniquely named PostgreSQL 18 container, migrated dev API, synthetic accounts and two active Seller shops with different Account and SellerShop IDs.
+when: Run the 18 approved PB-002–010 operation IDs through Guest browse/cart, Member registration/login/merge, address, two-Seller COD, Seller payment, cancellation and stock version flows.
+then: Every operation has an asserted HTTP result and response shape; replay retains the original order ID, changed body conflicts, foreign resources are hidden, paid cancellation conflicts, repeated pending cancellation is stable, and stale stock edit conflicts.
+forbidden_effects: No direct database mutation after fixture provisioning, no secret in committed files or evidence, no mutation of an existing database, no audit deletion.
+fixtures: Generated credentials/keys are kept in process memory; one new container and clean migrated database per run; second Seller and catalog rows are synthetic setup only.
+cleanup: Remove only the uniquely named container created by the runner, including on failure.
+concurrency: Race and late-audit rollback evidence comes from the existing PostgreSQL test suites, not the sequential HTTP demo.
+test: scripts/phase7_demo.py --runs 2 --verify-reports
+acceptance: Two complete clean runs, full suite with nonzero test counts and zero failure/skip, prod fixture guard, recorded revision and known omissions.

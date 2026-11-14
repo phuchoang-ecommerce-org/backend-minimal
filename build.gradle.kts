@@ -96,6 +96,21 @@ configurations {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    doLast {
+        val xmlReports = reports.junitXml.outputLocation.get().asFile
+            .walkTopDown()
+            .filter { it.isFile && it.name.startsWith("TEST-") && it.extension == "xml" }
+            .toList()
+        val testCount = xmlReports.sumOf { report ->
+            Regex("tests=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
+        }
+        val skippedCount = xmlReports.sumOf { report ->
+            Regex("skipped=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
+        }
+        check(testCount > 0) { "${path} discovered zero tests" }
+        check(skippedCount == 0) { "${path} skipped $skippedCount tests" }
+    }
+}
 
 val integrationTest = tasks.register<Test>("integrationTest") {
     description = "Runs isolated PostgreSQL integration-contract tests."
@@ -104,21 +119,6 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     classpath = sourceSets["integrationTest"].runtimeClasspath
     shouldRunAfter(tasks.test)
     useJUnitPlatform()
-}
-doLast {
-    val xmlReports = reports.junitXml.outputLocation.get().asFile
-        .walkTopDown()
-        .filter { it.isFile && it.name.startsWith("TEST-") && it.extension == "xml" }
-        .toList()
-    val testCount = xmlReports.sumOf { report ->
-        Regex("tests=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
-    }
-    val skippedCount = xmlReports.sumOf { report ->
-        Regex("skipped=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
-    }
-    check(testCount > 0) { "${path} discovered zero tests" }
-    check(skippedCount == 0) { "${path} skipped $skippedCount tests" }
-}
 }
 
 tasks.register<Test>("checkoutRed") {
