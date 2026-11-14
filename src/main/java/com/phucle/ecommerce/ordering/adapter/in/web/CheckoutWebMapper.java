@@ -2,6 +2,7 @@ package com.phucle.ecommerce.ordering.adapter.in.web;
 
 import com.phucle.ecommerce.ordering.application.CreationSnapshotReadPort;
 import com.phucle.ecommerce.ordering.application.OwnOrderQueries;
+import com.phucle.ecommerce.ordering.application.SellerOrderQueries;
 import com.phucle.ecommerce.ordering.domain.AddressSnapshot;
 import org.mapstruct.Mapper;
 import org.mapstruct.Builder;
@@ -18,4 +19,6 @@ interface CheckoutWebMapper {
     CheckoutResponse.AddressResponse toResponse(OwnOrderQueries.AddressView address);
     CheckoutResponse.SellerOrderResponse toResponse(OwnOrderQueries.SellerOrderView order);
     CheckoutResponse.PurchasedLineResponse toResponse(OwnOrderQueries.PurchasedLineView line);
+    CheckoutResponse.SellerOrderResponse toResponse(SellerOrderQueries.OrderView order);
+    CheckoutResponse.PurchasedLineResponse toResponse(SellerOrderQueries.LineView line);
 }

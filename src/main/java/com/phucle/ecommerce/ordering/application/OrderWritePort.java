@@ -10,5 +10,7 @@ public interface OrderWritePort {
     Optional<Existing> findExisting(UUID memberId, String key);
     void save(String key, String fingerprint, CustomerOrder order);
     Optional<CustomerOrder> lockOwned(UUID memberId, UUID orderId);
+    Optional<CustomerOrder> lockOwnedPortion(UUID sellerId, UUID sellerOrderId);
     void saveCancellation(CustomerOrder order);
+    void savePayment(CustomerOrder order, UUID sellerOrderId);
 }

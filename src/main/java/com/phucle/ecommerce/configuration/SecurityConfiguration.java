@@ -21,7 +21,7 @@ class SecurityConfiguration {
         AuthenticationEntryPoint unauthorized = unauthorizedEntryPoint(problemWriter);
         return http
                 // Guest-cart mutations keep CSRF/origin controls. Credential JSON endpoints do not use a cookie proof.
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login", "/accounts", "/auth/login", "/cart", "/cart/lines/**", "/me/addresses", "/orders", "/orders/*/cancellation"))
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login", "/accounts", "/auth/login", "/cart", "/cart/lines/**", "/me/addresses", "/orders", "/orders/*/cancellation", "/seller/orders/*/mark-paid"))
                 .httpBasic(httpBasic -> httpBasic.disable())
                 .formLogin(formLogin -> formLogin.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -41,6 +41,8 @@ class SecurityConfiguration {
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/orders", "/orders/{orderId}").hasRole("MEMBER")
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/orders").hasRole("MEMBER")
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/orders/{orderId}/cancellation").hasRole("MEMBER")
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/seller/orders").hasRole("SELLER")
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/seller/orders/{sellerOrderId}/mark-paid").hasRole("SELLER")
                         .anyRequest().denyAll())
                 .build();
     }

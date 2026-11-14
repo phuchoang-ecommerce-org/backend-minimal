@@ -61,16 +61,32 @@ class JdbcOrderWrite implements OrderWritePort {
         var roots = readLockedRoots(memberId, orderId);
         if (roots.isEmpty()) return Optional.empty();
         LockedRoot root = roots.getFirst();
-        AddressSnapshot address = readAddress(orderId);
-        List<SellerOrder> portions = readPortions(orderId);
-        return Optional.of(CustomerOrder.rehydrate(root.id(), memberId, address, portions, root.status(),
-                root.cancelledAt(), root.totalUsd()));
+        return Optional.of(rehydrate(root, memberId));
+    }
+
+    @Override public Optional<CustomerOrder> lockOwnedPortion(UUID sellerId, UUID sellerOrderId) {
+        List<UUID> parentIds = jdbc.query("SELECT customer_order_id FROM marketplace.seller_order WHERE id=? AND seller_id=?",
+                (rs, row) -> rs.getObject(1, UUID.class), sellerOrderId, sellerId);
+        if (parentIds.isEmpty()) return Optional.empty();
+        UUID orderId = parentIds.getFirst();
+        List<LockedRoot> roots = jdbc.query("SELECT id,member_id,status,cancelled_at,total_usd FROM marketplace.customer_order WHERE id=? FOR UPDATE",
+                (rs, row) -> new LockedRoot(rs.getObject("id", UUID.class), rs.getObject("member_id", UUID.class),
+                        rs.getString("status"), instant(rs.getTimestamp("cancelled_at")), rs.getBigDecimal("total_usd")), orderId);
+        if (roots.isEmpty()) return Optional.empty();
+        return Optional.of(rehydrate(roots.getFirst(), roots.getFirst().memberId()));
+    }
+
+    private CustomerOrder rehydrate(LockedRoot root, UUID memberId) {
+        AddressSnapshot address = readAddress(root.id());
+        List<SellerOrder> portions = readPortions(root.id());
+        return CustomerOrder.rehydrate(root.id(), memberId, address, portions, root.status(),
+                root.cancelledAt(), root.totalUsd());
     }
 
     private List<LockedRoot> readLockedRoots(UUID memberId, UUID orderId) {
         return jdbc.query("SELECT id,status,cancelled_at,total_usd FROM marketplace.customer_order "
                         + "WHERE id=? AND member_id=? FOR UPDATE",
-                (rs, row) -> new LockedRoot(rs.getObject("id", UUID.class), rs.getString("status"),
+                (rs, row) -> new LockedRoot(rs.getObject("id", UUID.class), memberId, rs.getString("status"),
                         instant(rs.getTimestamp("cancelled_at")), rs.getBigDecimal("total_usd")), orderId, memberId);
     }
 
@@ -111,7 +127,17 @@ class JdbcOrderWrite implements OrderWritePort {
                 Timestamp.from(order.cancelledAt()), order.id(), order.memberId()) != 1)
             throw new IllegalStateException("Order cancellation state changed unexpectedly");
     }
+    @Override public void savePayment(CustomerOrder order, UUID sellerOrderId) {
+        SellerOrder portion = order.portions().stream().filter(p -> p.id().equals(sellerOrderId))
+                .findFirst().orElseThrow();
+        if (jdbc.update("UPDATE marketplace.seller_order SET payment_status='PAID',paid_at=? "
+                        + "WHERE id=? AND customer_order_id=? AND seller_id=? AND payment_status='PENDING_PAYMENT'",
+                Timestamp.from(portion.paidAt()), sellerOrderId, order.id(), portion.sellerId()) != 1)
+            throw new IllegalStateException("Seller portion payment state changed unexpectedly");
+        if (jdbc.update("UPDATE marketplace.customer_order SET version=version+1 WHERE id=? AND status='PLACED'", order.id()) != 1)
+            throw new IllegalStateException("Customer order payment state changed unexpectedly");
+    }
     private static Instant instant(Timestamp value) { return value == null ? null : value.toInstant(); }
-    private record LockedRoot(UUID id, String status, Instant cancelledAt, BigDecimal totalUsd) {}
+    private record LockedRoot(UUID id, UUID memberId, String status, Instant cancelledAt, BigDecimal totalUsd) {}
     private record PortionRow(UUID id, UUID sellerId, String paymentStatus, Instant paidAt, BigDecimal totalUsd) {}
 }
