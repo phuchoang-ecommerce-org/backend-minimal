@@ -1,0 +1,28 @@
+scenario_id: AT-UC-01-SEARCH-BLANK
+title: Blank search text browses public products
+source_revision: "API 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249; search decision b088365340d5db2120ed3dac0debe79e92d71f59fb64d0367b0665d592481683"
+trace:
+  use_cases: [UC-01]
+  business_rules: []
+  architecture_rules: [Read Projection Boundary, Full-Text Search]
+level: application + mvc + postgres
+actor: Guest
+preconditions: [Published product from active seller exists]
+input: "q is omitted, empty, or whitespace-only; optional category and price filters"
+given: Same product fixtures for all requests
+when: Guest lists products with blank q
+then:
+  returned_result_or_error: "200 ProductList identical to omitted q with the same filters"
+  persisted_state: No rows changed
+  forbidden_effects: No search predicate or unauthenticated hidden products
+fixtures: Isolated PostgreSQL test container and fixed product IDs
+concurrency: Not applicable
+automation:
+  test_class: com.phucle.ecommerce.discovery.DiscoveryQueryHandlerTest, com.phucle.ecommerce.discovery.DiscoveryHttpIntegrationTest
+  test_method: blankSearchUsesBrowseFilterLikeOmittedSearch, searchHandlesBlankPunctuationAndVisibility
+  command: ./gradlew test --tests com.phucle.ecommerce.discovery.DiscoveryQueryHandlerTest integrationTest --tests com.phucle.ecommerce.discovery.DiscoveryHttpIntegrationTest
+red_evidence: "Before production edit, targeted test failed with IllegalArgumentException at DiscoveryQueryHandlerTest.java:34; 1 test, 1 failed. Wrapper required sandbox escalation for its cached distribution."
+green_evidence: "Focused unit and PostgreSQL HTTP tests passed; BUILD SUCCESSFUL, 7 actionable tasks."
+cleanup: Fresh mocks; disposable database for HTTP verification
+status: GREEN
+open_decisions: []

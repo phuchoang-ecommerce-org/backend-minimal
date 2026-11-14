@@ -74,6 +74,25 @@ class DiscoveryHttpIntegrationTest {
         mvc.perform(get("/products").param("limit","101")).andExpect(status().isBadRequest());
         mvc.perform(get("/products").param("minPrice","13.00").param("maxPrice","12.00")).andExpect(status().isBadRequest());
     }
+    @Test void searchHandlesBlankPunctuationAndVisibility() throws Exception {
+        mvc.perform(get("/products").param("q", "   ")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(VISIBLE.toString()));
+        mvc.perform(get("/products").param("q", "")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(VISIBLE.toString()));
+        mvc.perform(get("/products").param("q", "Java!!!")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(VISIBLE.toString()));
+        mvc.perform(get("/products").param("q", "!!!")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
+        mvc.perform(get("/products").param("q", "Hidden")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
+        mvc.perform(get("/products").param("q", "Inactive")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
+        mvc.perform(get("/products").param("q", "Java' OR true --")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1));
+        mvc.perform(get("/products").param("q", "x".repeat(201))).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
     @Test void categoryCursorIsBoundedAndCannotCrossEndpointsOrFilters() throws Exception {
         UUID second = UUID.fromString("10000000-0000-0000-0000-000000000002");
         jdbc.update("INSERT INTO marketplace.category(id,name) VALUES (?, 'Another')", second);

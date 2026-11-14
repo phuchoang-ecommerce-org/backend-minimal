@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 import com.phucle.ecommerce.catalog.api.PublicCatalogReadPort;
 import com.phucle.ecommerce.catalog.api.OwnedCatalogReadPort;
@@ -23,6 +24,19 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class DiscoveryQueryHandlerTest {
+    @Test void blankSearchUsesBrowseFilterLikeOmittedSearch() {
+        var catalog = mock(PublicCatalogReadPort.class);
+        var handler = new DiscoveryQueryHandler(catalog, mock(PublicStockReadPort.class),
+                mock(PublicReviewSummaryPort.class),
+                new CursorCodec("test-only-cursor-mac-secret-at-least-32-bytes"),
+                mock(OwnedCatalogReadPort.class), mock(SellerShopDirectory.class));
+        var blank = handler.products("   ", null, null, null, null, 20);
+        var omitted = handler.products(null, null, null, null, null, 20);
+        assertThat(blank).isEqualTo(omitted);
+        var filters = ArgumentCaptor.forClass(PublicCatalogReadPort.Filters.class);
+        verify(catalog, org.mockito.Mockito.times(2)).productsBefore(filters.capture(), eq(null), eq(21));
+        assertThat(filters.getAllValues()).allMatch(value -> value.q() == null);
+    }
     @Test void listComposesBatchProjectionWithoutDetailLookupsAndCopiesResults() {
         var catalog = mock(PublicCatalogReadPort.class);
         var inventory = mock(PublicStockReadPort.class);

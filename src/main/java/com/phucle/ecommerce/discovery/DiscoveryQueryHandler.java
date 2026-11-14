@@ -43,14 +43,16 @@ class DiscoveryQueryHandler implements DiscoveryQueryPort {
         return new Page<>(items, more ? cursors.encode("categories", "", selected.getLast().id()) : null, more);
     }
 
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ, timeout = 5)
     @Override public Page<Product> products(String q, UUID categoryId, BigDecimal minPrice, BigDecimal maxPrice,
             String cursor, int limit) {
         checkLimit(limit);
         validateProductFilters(q, minPrice, maxPrice);
-        String filter = productFilterKey(q, categoryId, minPrice, maxPrice);
+        String searchText = q == null || q.isBlank() ? null : q;
+        String filter = productFilterKey(searchText, categoryId, minPrice, maxPrice);
         UUID boundary = cursor == null ? null : cursors.decode(cursor, "products", filter);
         List<PublicCatalogReadPort.Product> rows = catalog.productsBefore(
-                new PublicCatalogReadPort.Filters(q, categoryId, minPrice, maxPrice), boundary, limit + 1);
+                new PublicCatalogReadPort.Filters(searchText, categoryId, minPrice, maxPrice), boundary, limit + 1);
         boolean more = rows.size() > limit;
         List<PublicCatalogReadPort.Product> selected = more ? rows.subList(0, limit) : rows;
         List<Product> items = compose(selected);
@@ -100,7 +102,7 @@ class DiscoveryQueryHandler implements DiscoveryQueryPort {
     }
 
     private void validateProductFilters(String q, BigDecimal minPrice, BigDecimal maxPrice) {
-        if (q != null && (q.isBlank() || q.length() > 200)) throw new IllegalArgumentException("Invalid query");
+        if (q != null && q.length() > 200) throw new IllegalArgumentException("Invalid query");
         if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0)
             throw new IllegalArgumentException("Invalid price range");
     }
