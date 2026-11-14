@@ -21,7 +21,7 @@ class SecurityConfiguration {
         AuthenticationEntryPoint unauthorized = unauthorizedEntryPoint(problemWriter);
         return http
                 // Guest-cart mutations keep CSRF/origin controls. Credential JSON endpoints do not use a cookie proof.
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login", "/accounts", "/auth/login", "/cart", "/cart/lines/**", "/me/addresses", "/orders", "/orders/*/cancellation", "/seller/orders/*/mark-paid", "/seller/stock/*"))
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/seed", "/dev/quick-login", "/accounts", "/auth/login", "/cart", "/cart/lines/**", "/me/addresses", "/orders", "/orders/*/cancellation", "/seller/orders/*/mark-paid", "/seller/stock/*"))
                 .httpBasic(httpBasic -> httpBasic.disable())
                 .formLogin(formLogin -> formLogin.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -34,7 +34,7 @@ class SecurityConfiguration {
                                 response, org.springframework.http.HttpStatus.FORBIDDEN,
                                 "ROLE_DENIED", "Access is denied")))
                 .authorizeHttpRequests(requests -> requests
-                        .requestMatchers("/auth/login", "/accounts", "/dev/quick-login").permitAll()
+                        .requestMatchers("/auth/login", "/accounts", "/dev/quick-login", "/dev/seed").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/categories", "/products", "/products/{productId}").permitAll()
                         .requestMatchers("/cart", "/cart/lines/**").permitAll()
                         .requestMatchers("/me/addresses").hasRole("MEMBER")

@@ -35,6 +35,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest(classes = MarketplaceApplication.class)
 class IdentityHttpIntegrationTest {
 
+    @Test
+    void productionHasNoDevSeedRoute() throws Exception {
+        mockMvc.perform(post("/dev/seed").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"memberPassword\":\"DevMember2026!OnlyLocal\",\"sellerPassword\":\"DevSeller2026!OnlyLocal\",\"adminPassword\":\"DevAdmin2026!OnlyLocal\"}"))
+                .andExpect(status().isNotFound());
+    }
+
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:18")
             .withDatabaseName("marketplace")

@@ -37,27 +37,24 @@ Run these commands from this repository's root in a POSIX-compatible shell. The 
 
    Edit `.env`: replace `DB_PASSWORD`, `DB_RUNTIME_PASSWORD`, and `DB_MIGRATION_PASSWORD` with the **same** local password, and replace `CURSOR_MAC_SECRET` with at least 32 random UTF-8 bytes. For example, `openssl rand -hex 32` prints a suitable secret. Keep `DEV_FIXTURES_ENABLED=false` for an empty local database. The `.env` file is ignored by Git.
 
-2. Start PostgreSQL and export the environment values for the application:
+2. Start PostgreSQL:
 
    ```sh
    docker compose up -d --wait db
-   set -a
-   . ./.env
-   set +a
    ```
 
-   Compose reads `.env` automatically. Gradle does not, which is why the shell exports it above. Flyway creates and migrates the `marketplace` schema when the application starts.
+   Compose reads `.env` automatically. The `dev` profile also loads `.env` from the repository root when the API starts. Exported environment variables take precedence. Flyway creates and migrates the `marketplace` schema when the application starts.
 
-3. Generate a local RSA key pair and export it in the formats expected by the JWT configuration:
+3. Generate a local RSA key pair in the formats expected by the JWT configuration:
 
    ```sh
    JWT_KEY_DIR=$(mktemp -d)
    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$JWT_KEY_DIR/private.pem"
-   export JWT_PRIVATE_KEY=$(openssl pkcs8 -topk8 -nocrypt -in "$JWT_KEY_DIR/private.pem" -outform DER | base64 | tr -d '\n')
-   export JWT_PUBLIC_KEY=$(openssl pkey -in "$JWT_KEY_DIR/private.pem" -pubout -outform DER | base64 | tr -d '\n')
+   openssl pkcs8 -topk8 -nocrypt -in "$JWT_KEY_DIR/private.pem" -outform DER | base64 | tr -d '\n'; printf '\n'
+   openssl pkey -in "$JWT_KEY_DIR/private.pem" -pubout -outform DER | base64 | tr -d '\n'; printf '\n'
    ```
 
-   Keep the private key and its environment value local. Repeat this step in a new shell session if you have not retained the key pair.
+   Paste the first base64 line into `JWT_PRIVATE_KEY=` and the second into `JWT_PUBLIC_KEY=` in `.env`. Keep the private key and `.env` local. You can recreate `.env` from `.env.example` by repeating these steps; the template contains every required dev setting.
 
 4. Start the API and check that it responds:
 
@@ -71,15 +68,15 @@ Run these commands from this repository's root in a POSIX-compatible shell. The 
 
 ### Development seed accounts
 
-With `SPRING_PROFILES_ACTIVE=dev` and `DEV_FIXTURES_ENABLED=true`, the backend seeds these synthetic accounts in the local database:
+Set `DEV_FIXTURES_ENABLED=true` in `.env` before starting the dev API, then run `node scripts/seed-dev.mjs` after it starts. Node 18 or newer is required. This calls the loopback-only `POST /dev/seed` endpoint and idempotently creates three accounts, one shop, five categories, 50 products and variants with stock, 50 linked product images, two addresses, 20 orders, and 20 reviews in a disposable local database. The image URLs point to five CC0 files on Wikimedia Commons; the database stores each file's source page and license URL, and browsers load images from `upload.wikimedia.org` when viewed. Run the script again to reset the three passwords without duplicating the generated rows. Copying `.env.example` alone does not create accounts; run the script before logging in.
 
-| Role | Login |
-| --- | --- |
-| Member | `synthetic.member@example.test` |
-| Seller | `synthetic.seller@example.test` |
-| Admin | `synthetic.admin@example.test` |
+| Role | Login | Password |
+| --- | --- | --- |
+| Member | `synthetic.member@example.test` | `DevMember2026!OnlyLocal` |
+| Seller | `synthetic.seller@example.test` | `DevSeller2026!OnlyLocal` |
+| Admin | `synthetic.admin@example.test` | `DevAdmin2026!OnlyLocal` |
 
-Set `DEV_MEMBER_PASSWORD_HASH`, `DEV_SELLER_PASSWORD_HASH`, and `DEV_ADMIN_PASSWORD_HASH` in the local `.env` file to BCrypt hashes of passwords you choose. The seed requires all three hashes; it does not supply a default password. Use the corresponding plain passwords only in your local frontend environment when enabling its development account buttons. The backend currently authenticates these accounts through normal `/auth/login`.
+These credentials are public development fixtures. The backend hashes the passwords and authenticates these accounts through normal `/auth/login`. The endpoint is absent in `prod`, and production rejects `DEV_FIXTURES_ENABLED=true`.
 
 Run `./gradlew check` with Docker available to execute unit, integration, and checkout contract tests. The [disposable API rehearsal](docs/phase7-demo.md) has its own instructions and additionally requires Python 3 with PyYAML and `htpasswd`.
 

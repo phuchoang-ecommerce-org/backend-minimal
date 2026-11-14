@@ -27,6 +27,7 @@ class FoundationContractTest {
 
         assertThat(compose).contains("postgres:18");
         assertThat(compose).contains("${DB_PASSWORD:?set local DB_PASSWORD}");
+        assertThat(compose).contains("- pgdata:/var/lib/postgresql\n");
         assertThat(compose).doesNotContain("POSTGRES_PASSWORD=secret");
     }
 
