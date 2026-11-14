@@ -48,7 +48,7 @@ final class CartController {
     CartView set(@PathVariable UUID variantId, @RequestBody WriteLine body, HttpServletRequest request) {
         TrustedActor actor = actor();
         String proof = proof(request);
-        if (actor == null && proof != null) guestPolicy.requireAllowed(request.getHeader("Origin"));
+        requireGuestOrigin(actor, proof, request);
         if (body.quantity() == null || body.expectedVersion() == null) throw new IllegalArgumentException();
         return commands.setLine(actor, proof, variantId, body.quantity(), body.expectedVersion());
     }
@@ -57,8 +57,11 @@ final class CartController {
     void remove(@PathVariable UUID variantId, @RequestParam long expectedVersion, HttpServletRequest request) {
         TrustedActor actor = actor();
         String proof = proof(request);
-        if (actor == null && proof != null) guestPolicy.requireAllowed(request.getHeader("Origin"));
+        requireGuestOrigin(actor, proof, request);
         commands.removeLine(actor, proof, variantId, expectedVersion);
+    }
+    private void requireGuestOrigin(TrustedActor actor, String proof, HttpServletRequest request) {
+        if (actor == null && proof != null) guestPolicy.requireAllowed(request.getHeader("Origin"));
     }
     private TrustedActor actor() {
         if (SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken) {

@@ -30,20 +30,28 @@ public class CancelOrderService implements CancelOrder {
         if (orderId == null) throw new IllegalArgumentException("Invalid order ID");
         var order = orders.lockOwned(actor.accountId(), orderId)
                 .orElseThrow(() -> new OrderFailure("RESOURCE_NOT_FOUND"));
+        cancelIfEligible(actor.accountId(), order);
+        // The root remains locked until commit, so payment cannot change a portion between projection reads.
+        return results.findOwned(actor.accountId(), orderId).map(OwnOrderViewMapper::toView)
+                .orElseThrow(() -> new OrderStateCorruption("Cancelled order vanished before response projection"));
+    }
+
+    private void cancelIfEligible(UUID memberId, CustomerOrder order) {
         try {
             if (order.cancel(Instant.now())) {
-                Map<UUID, Integer> quantities = new HashMap<>();
-                order.portions().forEach(portion -> portion.lines().forEach(line ->
-                        quantities.merge(line.snapshot().variantId(), line.snapshot().quantity(), Math::addExact)));
-                stock.restore(quantities);
+                stock.restore(quantities(order));
                 orders.saveCancellation(order);
-                audit.cancelled(actor.accountId(), order.id());
+                audit.cancelled(memberId, order.id());
             }
         } catch (CustomerOrder.CancellationBlocked exception) {
             throw new OrderFailure("ILLEGAL_ORDER_STATE");
         }
-        // The root remains locked until commit, so payment cannot change a portion between projection reads.
-        return results.findOwned(actor.accountId(), orderId).map(OwnOrderViewMapper::toView)
-                .orElseThrow(() -> new OrderStateCorruption("Cancelled order vanished before response projection"));
+    }
+
+    private Map<UUID, Integer> quantities(CustomerOrder order) {
+        Map<UUID, Integer> quantities = new HashMap<>();
+        order.portions().forEach(portion -> portion.lines().forEach(line ->
+                quantities.merge(line.snapshot().variantId(), line.snapshot().quantity(), Math::addExact)));
+        return quantities;
     }
 }

@@ -24,27 +24,43 @@ class DevFixtureSeedConfiguration {
     @Bean
     ApplicationRunner seedSyntheticDevFixtures(JdbcTemplate jdbc, DevFixtureProperties properties) {
         return arguments -> {
-            insertAccount(jdbc, MEMBER_ACCOUNT_ID, "synthetic.member@example.test", properties.memberPasswordHash(), "MEMBER");
-            insertAccount(jdbc, SELLER_ACCOUNT_ID, "synthetic.seller@example.test", properties.sellerPasswordHash(), "SELLER");
-            insertAccount(jdbc, ADMIN_ACCOUNT_ID, "synthetic.admin@example.test", properties.adminPasswordHash(), "ADMIN");
-            jdbc.update("""
-                    INSERT INTO marketplace.seller_shop (id, account_id, name, status)
-                    VALUES (?, ?, 'Synthetic Seller Shop', 'ACTIVE')
-                    ON CONFLICT DO NOTHING
-                    """, SELLER_SHOP_ID, SELLER_ACCOUNT_ID);
-            jdbc.update("INSERT INTO marketplace.category (id,name) VALUES (?, 'Synthetic Books') ON CONFLICT DO NOTHING", SAMPLE_CATEGORY_ID);
-            jdbc.update("""
-                    INSERT INTO marketplace.product (id,seller_id,category_id,title,description,published)
-                    VALUES (?,?,?,'Synthetic Java Guide','Synthetic public discovery fixture',true)
-                    ON CONFLICT DO NOTHING
-                    """, SAMPLE_PRODUCT_ID, SELLER_SHOP_ID, SAMPLE_CATEGORY_ID);
-            jdbc.update("""
-                    INSERT INTO marketplace.variant (id,product_id,sku,label,price_usd)
-                    VALUES (?,?,'SYNTHETIC-JAVA-GUIDE','Paperback',12.50)
-                    ON CONFLICT DO NOTHING
-                    """, SAMPLE_VARIANT_ID, SAMPLE_PRODUCT_ID);
-            jdbc.update("INSERT INTO marketplace.stock (variant_id,on_hand) VALUES (?,7) ON CONFLICT DO NOTHING", SAMPLE_VARIANT_ID);
+            seedAccounts(jdbc, properties);
+            seedSellerShop(jdbc);
+            seedCatalog(jdbc);
+            seedStock(jdbc);
         };
+    }
+
+    private void seedAccounts(JdbcTemplate jdbc, DevFixtureProperties properties) {
+        insertAccount(jdbc, MEMBER_ACCOUNT_ID, "synthetic.member@example.test", properties.memberPasswordHash(), "MEMBER");
+        insertAccount(jdbc, SELLER_ACCOUNT_ID, "synthetic.seller@example.test", properties.sellerPasswordHash(), "SELLER");
+        insertAccount(jdbc, ADMIN_ACCOUNT_ID, "synthetic.admin@example.test", properties.adminPasswordHash(), "ADMIN");
+    }
+
+    private void seedSellerShop(JdbcTemplate jdbc) {
+        jdbc.update("""
+                INSERT INTO marketplace.seller_shop (id, account_id, name, status)
+                VALUES (?, ?, 'Synthetic Seller Shop', 'ACTIVE')
+                ON CONFLICT DO NOTHING
+                """, SELLER_SHOP_ID, SELLER_ACCOUNT_ID);
+    }
+
+    private void seedCatalog(JdbcTemplate jdbc) {
+        jdbc.update("INSERT INTO marketplace.category (id,name) VALUES (?, 'Synthetic Books') ON CONFLICT DO NOTHING", SAMPLE_CATEGORY_ID);
+        jdbc.update("""
+                INSERT INTO marketplace.product (id,seller_id,category_id,title,description,published)
+                VALUES (?,?,?,'Synthetic Java Guide','Synthetic public discovery fixture',true)
+                ON CONFLICT DO NOTHING
+                """, SAMPLE_PRODUCT_ID, SELLER_SHOP_ID, SAMPLE_CATEGORY_ID);
+        jdbc.update("""
+                INSERT INTO marketplace.variant (id,product_id,sku,label,price_usd)
+                VALUES (?,?,'SYNTHETIC-JAVA-GUIDE','Paperback',12.50)
+                ON CONFLICT DO NOTHING
+                """, SAMPLE_VARIANT_ID, SAMPLE_PRODUCT_ID);
+    }
+
+    private void seedStock(JdbcTemplate jdbc) {
+        jdbc.update("INSERT INTO marketplace.stock (variant_id,on_hand) VALUES (?,7) ON CONFLICT DO NOTHING", SAMPLE_VARIANT_ID);
     }
 
     private void insertAccount(JdbcTemplate jdbc, UUID id, String login, String passwordHash, String role) {

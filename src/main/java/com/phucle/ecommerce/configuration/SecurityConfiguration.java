@@ -9,6 +9,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.phucle.ecommerce.identity.adapter.out.security.TrustedJwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.AuthenticationEntryPoint;
 
 @Configuration
 @EnableMethodSecurity
@@ -17,6 +18,7 @@ class SecurityConfiguration {
     @Bean
     SecurityFilterChain foundationSecurityFilterChain(
             HttpSecurity http, ProblemResponseWriter problemWriter, TrustedJwtAuthenticationConverter jwtConverter) throws Exception {
+        AuthenticationEntryPoint unauthorized = unauthorizedEntryPoint(problemWriter);
         return http
                 // Guest-cart mutations keep CSRF/origin controls. Credential JSON endpoints do not use a cookie proof.
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/dev/quick-login", "/accounts", "/auth/login", "/cart", "/cart/lines/**", "/me/addresses", "/orders", "/orders/*/cancellation"))
@@ -25,17 +27,9 @@ class SecurityConfiguration {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .oauth2ResourceServer(resourceServer -> resourceServer
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtConverter))
-                        .authenticationEntryPoint((request, response, exception) -> {
-                            response.setHeader("WWW-Authenticate", "Bearer");
-                            problemWriter.write(response, org.springframework.http.HttpStatus.UNAUTHORIZED,
-                                    "AUTHENTICATION_REQUIRED", "Authentication is required");
-                        }))
+                        .authenticationEntryPoint(unauthorized))
                 .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint((request, response, exception) -> {
-                            response.setHeader("WWW-Authenticate", "Bearer");
-                            problemWriter.write(response, org.springframework.http.HttpStatus.UNAUTHORIZED,
-                                    "AUTHENTICATION_REQUIRED", "Authentication is required");
-                        })
+                        .authenticationEntryPoint(unauthorized)
                         .accessDeniedHandler((request, response, exception) -> problemWriter.write(
                                 response, org.springframework.http.HttpStatus.FORBIDDEN,
                                 "ROLE_DENIED", "Access is denied")))
@@ -49,6 +43,14 @@ class SecurityConfiguration {
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/orders/{orderId}/cancellation").hasRole("MEMBER")
                         .anyRequest().denyAll())
                 .build();
+    }
+
+    private AuthenticationEntryPoint unauthorizedEntryPoint(ProblemResponseWriter problemWriter) {
+        return (request, response, exception) -> {
+            response.setHeader("WWW-Authenticate", "Bearer");
+            problemWriter.write(response, org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "AUTHENTICATION_REQUIRED", "Authentication is required");
+        };
     }
 
     @Bean

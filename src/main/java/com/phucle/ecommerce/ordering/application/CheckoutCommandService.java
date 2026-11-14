@@ -19,6 +19,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.math.BigDecimal;
@@ -41,48 +42,70 @@ public class CheckoutCommandService implements PlaceCodOrder {
     @Transactional
     public CreationSnapshotReadPort.Order execute(TrustedActor actor, Command command) {
         if (actor == null || !"MEMBER".equals(actor.operationalRole())) throw new OrderFailure("ROLE_DENIED");
-        if (command == null) throw new IllegalArgumentException("Invalid checkout request");
-        UUID addressId = command.addressId();
-        long cartVersion = command.cartVersion();
-        String method = command.paymentMethod();
-        String voucherCode = command.voucherCode();
-        String key = command.idempotencyKey();
-        if (addressId == null || cartVersion < 0 || !"COD".equals(method) || key == null
-                || key.isBlank() || key.length() > 128 || voucherCode != null && (voucherCode.isBlank() || voucherCode.length() > 100))
-            throw new IllegalArgumentException("Invalid checkout request");
+        validate(command);
         UUID memberId = actor.accountId();
-        String fingerprint = fingerprint(addressId, cartVersion, voucherCode);
-        writes.serializeIntent(memberId, key);
+        String fingerprint = fingerprint(command.addressId(), command.cartVersion(), command.voucherCode());
+        writes.serializeIntent(memberId, command.idempotencyKey());
+        var existing = existingPlacement(memberId, command.idempotencyKey(), fingerprint);
+        if (existing.isPresent()) return reads.readCreation(existing.get().id(), command.voucherCode());
+
+        var cart = lockCart(memberId, command.cartVersion());
+        var address = snapshotAddress(actor, command.addressId());
+        if (command.voucherCode() != null) throw new OrderFailure("VOUCHER_INVALID");
+        CustomerOrder order = OrderFactory.place(memberId, address, placementLines(cart));
+        reserveStock(cart);
+        writes.save(command.idempotencyKey(), fingerprint, order);
+        carts.consume(cart.id(), command.cartVersion());
+        audit.placed(memberId, order.id());
+        return reads.readCreation(order.id(), command.voucherCode());
+    }
+
+    private static void validate(Command command) {
+        if (command == null || command.addressId() == null || command.cartVersion() < 0
+                || !"COD".equals(command.paymentMethod()) || command.idempotencyKey() == null
+                || command.idempotencyKey().isBlank() || command.idempotencyKey().length() > 128
+                || command.voucherCode() != null
+                && (command.voucherCode().isBlank() || command.voucherCode().length() > 100))
+            throw new IllegalArgumentException("Invalid checkout request");
+    }
+
+    private Optional<OrderWritePort.Existing> existingPlacement(UUID memberId, String key, String fingerprint) {
         var existing = writes.findExisting(memberId, key);
-        if (existing.isPresent()) {
-            if (!fingerprint.equals(existing.get().fingerprint())) throw new OrderFailure("IDEMPOTENCY_CONFLICT");
-            return reads.readCreation(existing.get().id(), voucherCode);
-        }
+        if (existing.isPresent() && !fingerprint.equals(existing.get().fingerprint()))
+            throw new OrderFailure("IDEMPOTENCY_CONFLICT");
+        return existing;
+    }
+
+    private CheckoutCart.Locked lockCart(UUID memberId, long expectedVersion) {
         var cart = carts.lockOwned(memberId);
-        if (cart == null || cart.version() != cartVersion) throw new OrderFailure("CART_CHANGED");
+        if (cart == null || cart.version() != expectedVersion) throw new OrderFailure("CART_CHANGED");
+        return cart;
+    }
+
+    private AddressSnapshot snapshotAddress(TrustedActor actor, UUID addressId) {
         var ownedAddress = addresses.findOwned(actor, addressId);
-        var address = new AddressSnapshot(ownedAddress.recipient(), ownedAddress.addressLine(),
+        return new AddressSnapshot(ownedAddress.recipient(), ownedAddress.addressLine(),
                 ownedAddress.locality(), ownedAddress.postalCode(), ownedAddress.country());
-        if (voucherCode != null) throw new OrderFailure("VOUCHER_INVALID");
+    }
+
+    private List<OrderPlacementLine> placementLines(CheckoutCart.Locked cart) {
         if (cart.lines().isEmpty()) throw new OrderFailure("EMPTY_CART");
         List<UUID> ids = cart.lines().stream().map(CheckoutCart.Line::variantId).toList();
         Map<UUID, CheckoutOffers.Offer> current = offers.lockCurrent(ids).stream()
                 .collect(Collectors.toMap(CheckoutOffers.Offer::variantId, Function.identity()));
         if (current.size() != ids.size() || current.values().stream().anyMatch(offer -> !offer.purchasable()))
             throw new OrderFailure("ITEM_UNAVAILABLE");
-        List<OrderPlacementLine> lines = cart.lines().stream().map(line -> {
+        return cart.lines().stream().map(line -> {
             var offer = current.get(line.variantId());
             return new OrderPlacementLine(offer.productId(), offer.sellerShopId(), offer.variantId(), offer.title(),
                     offer.sku(), line.quantity(), offer.unitPriceUsd(), new BigDecimal("0.00"));
         }).toList();
-        CustomerOrder order = OrderFactory.place(memberId, address, lines);
+    }
+
+    private void reserveStock(CheckoutCart.Locked cart) {
         Map<UUID, Integer> quantities = cart.lines().stream()
                 .collect(Collectors.toMap(CheckoutCart.Line::variantId, CheckoutCart.Line::quantity));
         if (!stocks.decrease(quantities)) throw new OrderFailure("STOCK_UNAVAILABLE");
-        writes.save(key, fingerprint, order);
-        carts.consume(cart.id(), cartVersion);
-        audit.placed(memberId, order.id());
-        return reads.readCreation(order.id(), voucherCode);
     }
 
     private static String fingerprint(UUID addressId, long version, String voucher) {

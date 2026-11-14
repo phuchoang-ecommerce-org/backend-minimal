@@ -1,6 +1,7 @@
 package com.phucle.ecommerce.identity.adapter.in.web;
 
 import com.phucle.ecommerce.identity.api.CompleteLogin;
+import com.phucle.ecommerce.identity.api.CompletedLogin;
 import com.phucle.ecommerce.identity.api.RegisterMember;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,11 +41,19 @@ class IdentityController {
                         HttpServletResponse httpResponse) {
         var result = completeLogin.complete(mapper.toCommand(request), guestProof(httpRequest),
                 httpRequest.getHeader("Origin"));
+        clearConsumedGuestCookie(httpResponse, result);
+        return response(result);
+    }
+
+    private void clearConsumedGuestCookie(HttpServletResponse httpResponse, CompletedLogin result) {
         if (result.merged() || result.sourceConsumed()) {
             httpResponse.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from("guest_cart", "")
                     .path("/").httpOnly(true).secure(result.secureCookie()).sameSite("Lax")
                     .maxAge(0).build().toString());
         }
+    }
+
+    private LoginResponse response(CompletedLogin result) {
         return new LoginResponse(result.login().accessToken(), "Bearer", result.login().expiresInSeconds(),
                 mapper.toResponse(result.login().account()),
                 new CartMergeResponse(result.merged(), result.rejectedLines()));

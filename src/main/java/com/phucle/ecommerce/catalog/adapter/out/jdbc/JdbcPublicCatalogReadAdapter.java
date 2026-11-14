@@ -64,6 +64,14 @@ class JdbcPublicCatalogReadAdapter implements PublicCatalogReadPort {
     private List<Product> enrich(List<Core> cores) {
         if (cores.isEmpty()) return List.of();
         List<UUID> ids = cores.stream().map(Core::id).toList();
+        Map<UUID, List<Variant>> variants = loadVariants(ids);
+        Map<UUID, List<Image>> images = loadImages(cores, ids);
+        return cores.stream().map(core -> new Product(core.id(), core.sellerId(), core.categoryId(), core.name(),
+                core.description(), core.published(), core.version(), variants.getOrDefault(core.id(), List.of()),
+                images.getOrDefault(core.id(), List.of()))).toList();
+    }
+
+    private Map<UUID, List<Variant>> loadVariants(List<UUID> ids) {
         Map<UUID, List<Variant>> variants = new HashMap<>();
         jdbc.query("""
                 SELECT id,product_id,sku,label,price_usd FROM marketplace.variant
@@ -71,6 +79,10 @@ class JdbcPublicCatalogReadAdapter implements PublicCatalogReadPort {
                 """, new MapSqlParameterSource("ids", ids), (org.springframework.jdbc.core.RowCallbackHandler) r -> variants.computeIfAbsent(
                 r.getObject("product_id", UUID.class), ignored -> new ArrayList<>()).add(new Variant(
                 r.getObject("id", UUID.class), r.getString("sku"), r.getString("label"), r.getBigDecimal("price_usd"))));
+        return variants;
+    }
+
+    private Map<UUID, List<Image>> loadImages(List<Core> cores, List<UUID> ids) {
         Map<UUID, List<Image>> images = new HashMap<>();
         Map<UUID, Long> versions = new HashMap<>();
         cores.forEach(c -> versions.put(c.id(), c.version()));
@@ -80,21 +92,21 @@ class JdbcPublicCatalogReadAdapter implements PublicCatalogReadPort {
                 """, new MapSqlParameterSource("ids", ids), r -> {
             UUID productId = r.getObject("product_id", UUID.class);
             List<Image> list = images.computeIfAbsent(productId, ignored -> new ArrayList<>());
-            UUID imageId = r.getObject("id", UUID.class);
-            String mode = r.getString("mode");
-            int sortOrder = r.getInt("sort_order");
-            String alt = r.getString("alt_text");
-            boolean primary = list.isEmpty();
-            long version = versions.get(productId);
-            if ("LINK".equals(mode)) list.add(new LinkedImage(imageId, alt, sortOrder, primary, version,
-                    mode, r.getString("source_url"), r.getString("source_name"), r.getString("license")));
-            else list.add(new UploadedImage(imageId, alt, sortOrder, primary, version, mode,
-                    "/products/" + productId + "/images/" + imageId + "/content", r.getString("mime_type"),
-                    r.getInt("byte_size"), r.getInt("width"), r.getInt("height")));
+            list.add(image(r, productId, list.isEmpty(), versions.get(productId)));
         });
-        return cores.stream().map(c -> new Product(c.id(), c.sellerId(), c.categoryId(), c.name(),
-                c.description(), c.published(), c.version(), variants.getOrDefault(c.id(), List.of()),
-                images.getOrDefault(c.id(), List.of()))).toList();
+        return images;
+    }
+
+    private Image image(ResultSet r, UUID productId, boolean primary, long version) throws SQLException {
+        UUID imageId = r.getObject("id", UUID.class);
+        String mode = r.getString("mode");
+        int sortOrder = r.getInt("sort_order");
+        String alt = r.getString("alt_text");
+        if ("LINK".equals(mode)) return new LinkedImage(imageId, alt, sortOrder, primary, version,
+                mode, r.getString("source_url"), r.getString("source_name"), r.getString("license"));
+        return new UploadedImage(imageId, alt, sortOrder, primary, version, mode,
+                "/products/" + productId + "/images/" + imageId + "/content", r.getString("mime_type"),
+                r.getInt("byte_size"), r.getInt("width"), r.getInt("height"));
     }
     private record Core(UUID id, UUID sellerId, UUID categoryId, String name, String description,
             boolean published, long version) {}

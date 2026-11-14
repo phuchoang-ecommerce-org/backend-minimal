@@ -6,6 +6,7 @@ import com.phucle.ecommerce.review.api.PublicReviewSummaryPort;
 import com.phucle.ecommerce.shared.CursorCodec;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -36,11 +37,8 @@ final class DiscoveryQueryHandler implements DiscoveryQueryPort {
     @Override public Page<Product> products(String q, UUID categoryId, BigDecimal minPrice, BigDecimal maxPrice,
             String cursor, int limit) {
         checkLimit(limit);
-        if (q != null && (q.isBlank() || q.length() > 200)) throw new IllegalArgumentException("Invalid query");
-        if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0)
-            throw new IllegalArgumentException("Invalid price range");
-        String filter = String.join(";", q == null ? "" : q, categoryId == null ? "" : categoryId.toString(),
-                minPrice == null ? "" : minPrice.toPlainString(), maxPrice == null ? "" : maxPrice.toPlainString());
+        validateProductFilters(q, minPrice, maxPrice);
+        String filter = productFilterKey(q, categoryId, minPrice, maxPrice);
         UUID boundary = cursor == null ? null : cursors.decode(cursor, "products", filter);
         List<PublicCatalogReadPort.Product> rows = catalog.productsBefore(
                 new PublicCatalogReadPort.Filters(q, categoryId, minPrice, maxPrice), boundary, limit + 1);
@@ -63,18 +61,35 @@ final class DiscoveryQueryHandler implements DiscoveryQueryPort {
                 .map(PublicCatalogReadPort.Variant::id).collect(Collectors.toSet());
         var stock = inventory.findStock(variantIds);
         var summaries = reviews.summaries(productIds);
-        return cores.stream().map(c -> {
-            var summary = summaries.get(c.id());
-            List<Variant> variants = c.variants().stream().map(v -> {
-                var current = stock.get(v.id());
-                return new Variant(v.id(), v.sku(), v.label(), v.priceUsd().toPlainString(),
-                        new Stock(v.id(), current == null ? 0 : current.onHand(), current == null ? 0 : current.version()));
-            }).toList();
-            List<Image> images = c.images().stream().map(this::image).toList();
-            return new Product(c.id(), c.sellerId(), c.categoryId(), c.name(), c.description(), c.published(),
-                    c.version(), variants, summary == null ? null : summary.ratingAverage(),
-                    summary == null ? 0 : summary.reviewCount(), images);
-        }).toList();
+        return cores.stream().map(core -> product(core, stock, summaries)).toList();
+    }
+
+    private Product product(PublicCatalogReadPort.Product core, Map<UUID, PublicStockReadPort.Stock> stock,
+            Map<UUID, PublicReviewSummaryPort.Summary> summaries) {
+        var summary = summaries.get(core.id());
+        List<Variant> variants = core.variants().stream().map(variant -> variant(variant, stock)).toList();
+        List<Image> images = core.images().stream().map(this::image).toList();
+        return new Product(core.id(), core.sellerId(), core.categoryId(), core.name(), core.description(),
+                core.published(), core.version(), variants, summary == null ? null : summary.ratingAverage(),
+                summary == null ? 0 : summary.reviewCount(), images);
+    }
+
+    private Variant variant(PublicCatalogReadPort.Variant source, Map<UUID, PublicStockReadPort.Stock> stock) {
+        var current = stock.get(source.id());
+        return new Variant(source.id(), source.sku(), source.label(), source.priceUsd().toPlainString(),
+                new Stock(source.id(), current == null ? 0 : current.onHand(),
+                        current == null ? 0 : current.version()));
+    }
+
+    private void validateProductFilters(String q, BigDecimal minPrice, BigDecimal maxPrice) {
+        if (q != null && (q.isBlank() || q.length() > 200)) throw new IllegalArgumentException("Invalid query");
+        if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0)
+            throw new IllegalArgumentException("Invalid price range");
+    }
+
+    private String productFilterKey(String q, UUID categoryId, BigDecimal minPrice, BigDecimal maxPrice) {
+        return String.join(";", q == null ? "" : q, categoryId == null ? "" : categoryId.toString(),
+                minPrice == null ? "" : minPrice.toPlainString(), maxPrice == null ? "" : maxPrice.toPlainString());
     }
 
     private Image image(PublicCatalogReadPort.Image source) {

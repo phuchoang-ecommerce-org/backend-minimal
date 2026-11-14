@@ -13,10 +13,13 @@ class JdbcCheckoutCart implements CheckoutCart {
     @Override public Locked lockOwned(UUID memberId) {
         var carts = jdbc.query("SELECT id,version FROM marketplace.cart WHERE member_id=? FOR UPDATE",
                 (rs, row) -> new Locked(rs.getObject(1, UUID.class), rs.getLong(2),
-                        jdbc.query("SELECT variant_id,quantity FROM marketplace.cart_line WHERE cart_id=? ORDER BY variant_id",
-                                (line, n) -> new Line(line.getObject(1, UUID.class), line.getInt(2)),
-                                rs.getObject(1, UUID.class))), memberId);
+                        lines(rs.getObject(1, UUID.class))), memberId);
         return carts.isEmpty() ? null : carts.getFirst();
+    }
+
+    private List<Line> lines(UUID cartId) {
+        return jdbc.query("SELECT variant_id,quantity FROM marketplace.cart_line WHERE cart_id=? ORDER BY variant_id",
+                (line, row) -> new Line(line.getObject(1, UUID.class), line.getInt(2)), cartId);
     }
     @Override public void consume(UUID cartId, long expectedVersion) {
         jdbc.update("DELETE FROM marketplace.cart_line WHERE cart_id=?", cartId);

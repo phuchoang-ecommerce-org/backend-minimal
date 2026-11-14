@@ -96,15 +96,20 @@ class GlobalExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
             MethodArgumentTypeMismatchException.class, MissingRequestHeaderException.class})
     ResponseEntity<ApiProblem> invalidRequest(Exception exception) {
+        Map<String, String> fields = fieldErrors(exception);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problems.create(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "The request is invalid", fields));
+    }
+
+    private Map<String, String> fieldErrors(Exception exception) {
         Map<String, String> fields = new LinkedHashMap<>();
         if (exception instanceof MethodArgumentNotValidException validation) {
             for (FieldError error : validation.getBindingResult().getFieldErrors()) {
                 fields.put(error.getField(), "Invalid value");
             }
         }
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problems.create(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "The request is invalid", fields));
+        return fields;
     }
 
     @ExceptionHandler(TransactionSystemException.class)

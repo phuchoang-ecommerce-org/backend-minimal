@@ -20,15 +20,30 @@ public final class TrustedJwtAuthenticationConverter implements Converter<Jwt, J
 
     @Override
     public JwtAuthenticationToken convert(Jwt jwt) {
+        UUID id = accountId(jwt);
+        String role = roleClaim(jwt);
+        Account account = activeAccount(id, role);
+        return new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_" + account.role().name())), id.toString());
+    }
+
+    private UUID accountId(Jwt jwt) {
         UUID id;
         try { id = UUID.fromString(jwt.getSubject()); }
         catch (RuntimeException exception) { throw new BadCredentialsException("Invalid account identity"); }
+        return id;
+    }
+
+    private String roleClaim(Jwt jwt) {
         List<String> roles = jwt.getClaimAsStringList("roles");
         if (roles == null || roles.size() != 1) throw new BadCredentialsException("Invalid operational role");
+        return roles.getFirst();
+    }
+
+    private Account activeAccount(UUID id, String role) {
         Account account = accounts.findById(new AccountId(id))
                 .orElseThrow(() -> new BadCredentialsException("Invalid account identity"));
-        if (!account.active() || !account.role().name().equals(roles.get(0)))
+        if (!account.active() || !account.role().name().equals(role))
             throw new BadCredentialsException("Invalid account identity");
-        return new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_" + account.role().name())), id.toString());
+        return account;
     }
 }

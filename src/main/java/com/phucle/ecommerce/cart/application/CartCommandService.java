@@ -10,6 +10,7 @@ import com.phucle.ecommerce.cart.api.GuestCartMergeResult;
 import com.phucle.ecommerce.cart.api.MergeGuestCartOnLogin;
 import com.phucle.ecommerce.cart.domain.Cart;
 import com.phucle.ecommerce.cart.domain.CartFailure;
+import com.phucle.ecommerce.cart.domain.CartLine;
 import com.phucle.ecommerce.cart.domain.Quantity;
 import com.phucle.ecommerce.catalog.api.CartOfferReadPort;
 import com.phucle.ecommerce.inventory.api.PublicStockReadPort;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -43,8 +45,7 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
     @Override public GuestCart getOrCreateGuest(String proof) {
         CartView existing=queries.existingGuest(proof==null?null:hash(proof));
         if (existing!=null) return new GuestCart(existing,null);
-        byte[] bytes=new byte[32]; RANDOM.nextBytes(bytes);
-        String created=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        String created=newProof();
         Cart cart=repository.createGuest(hash(created),Instant.now().plusSeconds(settings.ttlSeconds()));
         return new GuestCart(view(cart),created);
     }
@@ -53,10 +54,7 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
         Cart cart=owned(actor,proof,true);
         Quantity requested=new Quantity(quantity);
         cart.requireVersion(expected);
-        var offer=offers.offers(Set.of(variant)).get(variant);
-        var stock=stocks.findStock(Set.of(variant)).get(variant);
-        if (offer==null || !offer.purchasable() || stock==null || requested.value()>stock.onHand())
-            throw new CartFailure(CartFailure.Code.ITEM_UNAVAILABLE);
+        requireAvailable(variant,requested);
         long before=cart.version();cart.setQuantity(variant,requested);repository.save(cart,before);
         return view(cart);
     }
@@ -69,33 +67,61 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
     }
     @Override @Transactional
     public GuestCartMergeResult merge(GuestCartMergeCommand command) {
-        if (command==null || command.actor()==null || !"MEMBER".equals(command.actor().operationalRole()))
-            throw new CartFailure(CartFailure.Code.ROLE_DENIED);
+        requireMergeMember(command);
         Cart source=repository.guest(hash(command.guestSessionProof()),true);
         if (source==null) return new GuestCartMergeResult(false,false,List.of());
         if (source.mergedInto()!=null) return new GuestCartMergeResult(false,true,List.of());
-        UUID member=command.actor().accountId();
-        Cart target=repository.member(member,true);
-        if (target==null) target=repository.createMember(member);
+        Cart target=memberCart(command.actor().accountId());
         long before=target.version();
-        List<GuestCartMergeResult.RejectedGuestCartLine> rejected=new ArrayList<>();
-        Set<UUID> ids=source.lines().stream().map(l->l.variantId()).collect(java.util.stream.Collectors.toSet());
-        var currentOffers=offers.offers(ids);var currentStock=stocks.findStock(ids);
-        for (var line:source.lines()) {
-            var offer=currentOffers.get(line.variantId());var stock=currentStock.get(line.variantId());
-            if (offer==null || !offer.purchasable() || stock==null) {
-                rejected.add(new GuestCartMergeResult.RejectedGuestCartLine(line.variantId(),"ITEM_UNAVAILABLE"));
-                continue;
-            }
-            try { target.mergeLine(line.variantId(),line.quantity(),stock.onHand()); }
-            catch (CartFailure e) {
-                if (e.code()!=CartFailure.Code.QUANTITY_EXCEEDED) throw e;
-                rejected.add(new GuestCartMergeResult.RejectedGuestCartLine(line.variantId(),"QUANTITY_EXCEEDED"));
-            }
-        }
+        List<GuestCartMergeResult.RejectedGuestCartLine> rejected=mergeLines(source,target);
         if (target.version()!=before) repository.save(target,before);
         source.consumeInto(target.id());repository.save(source,source.version());
         return new GuestCartMergeResult(true,true,List.copyOf(rejected));
+    }
+
+    private void requireAvailable(UUID variant, Quantity requested) {
+        var offer=offers.offers(Set.of(variant)).get(variant);
+        var stock=stocks.findStock(Set.of(variant)).get(variant);
+        if (offer==null || !offer.purchasable() || stock==null || requested.value()>stock.onHand())
+            throw new CartFailure(CartFailure.Code.ITEM_UNAVAILABLE);
+    }
+
+    private static void requireMergeMember(GuestCartMergeCommand command) {
+        if (command==null || command.actor()==null || !"MEMBER".equals(command.actor().operationalRole()))
+            throw new CartFailure(CartFailure.Code.ROLE_DENIED);
+    }
+
+    private Cart memberCart(UUID member) {
+        Cart target=repository.member(member,true);
+        return target==null?repository.createMember(member):target;
+    }
+
+    private List<GuestCartMergeResult.RejectedGuestCartLine> mergeLines(Cart source,Cart target) {
+        Set<UUID> ids=source.lines().stream().map(l->l.variantId()).collect(java.util.stream.Collectors.toSet());
+        Map<UUID,CartOfferReadPort.Offer> currentOffers=offers.offers(ids);
+        Map<UUID,PublicStockReadPort.Stock> currentStock=stocks.findStock(ids);
+        List<GuestCartMergeResult.RejectedGuestCartLine> rejected=new ArrayList<>();
+        for (var line:source.lines()) {
+            String rejection=mergeLine(target,line,currentOffers.get(line.variantId()),currentStock.get(line.variantId()));
+            if (rejection!=null) rejected.add(new GuestCartMergeResult.RejectedGuestCartLine(line.variantId(),rejection));
+        }
+        return rejected;
+    }
+
+    private String mergeLine(Cart target,CartLine line,
+            CartOfferReadPort.Offer offer,PublicStockReadPort.Stock stock) {
+        if (offer==null || !offer.purchasable() || stock==null) return "ITEM_UNAVAILABLE";
+        try { target.mergeLine(line.variantId(),line.quantity(),stock.onHand()); }
+        catch (CartFailure e) {
+            if (e.code()!=CartFailure.Code.QUANTITY_EXCEEDED) throw e;
+            return "QUANTITY_EXCEEDED";
+        }
+        return null;
+    }
+
+    private static String newProof() {
+        byte[] bytes=new byte[32]; RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
     private Cart owned(TrustedActor actor,String proof,boolean createMember) {
         if (actor != null) CartActorAuthorization.requireMember(actor);

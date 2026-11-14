@@ -26,17 +26,25 @@ public class OwnOrderQueryService implements OwnOrderQueries {
     public Page page(TrustedActor actor, String cursor, int limit) {
         UUID memberId = member(actor);
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("Invalid limit");
-        CursorCodec.TimedBoundary boundary = cursor == null ? null
-                : cursors.decodeTimed(cursor, "member-orders", memberId.toString());
-        List<OwnOrderReadPort.Boundary> rows = reads.pageOwned(memberId,
-                boundary == null ? null : boundary.createdAt(), boundary == null ? null : boundary.id(), limit + 1);
+        List<OwnOrderReadPort.Boundary> rows = pageBoundaries(memberId, cursor, limit);
         boolean hasNext = rows.size() > limit;
         List<OwnOrderReadPort.Boundary> selected = hasNext ? rows.subList(0, limit) : rows;
-        List<OrderView> items = reads.findOwnedAll(memberId, selected.stream().map(OwnOrderReadPort.Boundary::id).toList())
+        return new Page(loadViews(memberId, selected), nextCursor(memberId, selected, hasNext), hasNext);
+    }
+    private List<OwnOrderReadPort.Boundary> pageBoundaries(UUID memberId, String cursor, int limit) {
+        CursorCodec.TimedBoundary boundary = cursor == null ? null
+                : cursors.decodeTimed(cursor, "member-orders", memberId.toString());
+        return reads.pageOwned(memberId, boundary == null ? null : boundary.createdAt(),
+                boundary == null ? null : boundary.id(), limit + 1);
+    }
+    private List<OrderView> loadViews(UUID memberId, List<OwnOrderReadPort.Boundary> selected) {
+        return reads.findOwnedAll(memberId, selected.stream().map(OwnOrderReadPort.Boundary::id).toList())
                 .stream().map(OwnOrderViewMapper::toView).toList();
-        String next = hasNext ? cursors.encodeTimed("member-orders", memberId.toString(),
-                selected.getLast().createdAt(), selected.getLast().id()) : null;
-        return new Page(items, next, hasNext);
+    }
+    private String nextCursor(UUID memberId, List<OwnOrderReadPort.Boundary> selected, boolean hasNext) {
+        if (!hasNext) return null;
+        var last = selected.getLast();
+        return cursors.encodeTimed("member-orders", memberId.toString(), last.createdAt(), last.id());
     }
     private UUID member(TrustedActor actor) {
         if (actor == null || !"MEMBER".equals(actor.operationalRole())) throw new OrderFailure("ROLE_DENIED");

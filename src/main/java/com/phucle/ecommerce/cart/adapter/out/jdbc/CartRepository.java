@@ -48,6 +48,9 @@ class CartRepository implements CartRepositoryPort {
                 cart.version(),cart.mergedInto(),cart.mergedInto(),cart.id(),previousVersion);
         if (updated != 1) throw new com.phucle.ecommerce.cart.domain.CartFailure(
                 com.phucle.ecommerce.cart.domain.CartFailure.Code.STALE_VERSION);
+        replaceLines(cart);
+    }
+    private void replaceLines(Cart cart) {
         jdbc.update("DELETE FROM marketplace.cart_line WHERE cart_id=?",cart.id());
         for (CartLine line:cart.lines()) jdbc.update(
                 "INSERT INTO marketplace.cart_line(cart_id,variant_id,quantity) VALUES (?,?,?)",

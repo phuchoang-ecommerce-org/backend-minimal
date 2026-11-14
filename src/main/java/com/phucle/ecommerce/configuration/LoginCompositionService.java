@@ -8,6 +8,7 @@ import com.phucle.ecommerce.identity.api.CompleteLogin;
 import com.phucle.ecommerce.identity.api.CompletedLogin;
 import com.phucle.ecommerce.identity.api.LogIn;
 import com.phucle.ecommerce.identity.api.LoginCommand;
+import com.phucle.ecommerce.identity.api.LoginResult;
 import com.phucle.ecommerce.identity.api.TrustedActor;
 import java.util.List;
 import java.util.UUID;
@@ -32,12 +33,19 @@ final class LoginCompositionService implements CompleteLogin {
             guestOrigin.requireAllowed(origin);
         }
         var login = logIn.logIn(command);
-        GuestCartMergeResult merge = new GuestCartMergeResult(false, false, List.of());
-        if (guestProof != null && login.account().role().equals("MEMBER")) {
-            merge = cartMerge.merge(new GuestCartMergeCommand(
-                    new TrustedActor(login.account().id(), login.account().role(), UUID.randomUUID().toString()),
-                    guestProof));
+        GuestCartMergeResult merge = mergeGuestCart(login.account().id(), login.account().role(), guestProof);
+        return completedLogin(login, merge);
+    }
+
+    private GuestCartMergeResult mergeGuestCart(UUID accountId, String role, String guestProof) {
+        if (guestProof == null || !"MEMBER".equals(role)) {
+            return new GuestCartMergeResult(false, false, List.of());
         }
+        return cartMerge.merge(new GuestCartMergeCommand(
+                new TrustedActor(accountId, role, UUID.randomUUID().toString()), guestProof));
+    }
+
+    private CompletedLogin completedLogin(LoginResult login, GuestCartMergeResult merge) {
         return new CompletedLogin(login, merge.merged(), merge.sourceConsumed(), guestOrigin.secureCookie(),
                 merge.rejectedLines().stream()
                         .map(line -> new CompletedLogin.RejectedLine(line.variantId(), line.code()))
