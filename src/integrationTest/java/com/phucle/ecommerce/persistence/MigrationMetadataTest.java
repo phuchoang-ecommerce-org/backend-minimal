@@ -14,7 +14,7 @@ import org.flywaydb.core.Flyway;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 class MigrationMetadataTest {
 
     @Container

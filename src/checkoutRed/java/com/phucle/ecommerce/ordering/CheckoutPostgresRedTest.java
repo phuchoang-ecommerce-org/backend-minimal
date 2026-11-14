@@ -2,6 +2,8 @@ package com.phucle.ecommerce.ordering;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,18 +12,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.phucle.ecommerce.MarketplaceApplication;
 import com.phucle.ecommerce.identity.JwtTestKeys;
+import java.sql.Connection;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -58,6 +62,44 @@ class CheckoutPostgresRedTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired JwtEncoder encoder;
     @Autowired ObjectMapper json;
+    @Autowired DataSource dataSource;
+
+    @Test void checkoutCancellationAndSellerEditShareStockVersion() throws Exception {
+        Fixture f = fixture("http-stock-version", 1, 1);
+        UUID seller = jdbc.queryForObject("SELECT account_id FROM marketplace.seller_shop WHERE id=?",
+                UUID.class, f.firstShop());
+        UUID product = jdbc.queryForObject("SELECT product_id FROM marketplace.variant WHERE id=?",
+                UUID.class, f.firstVariant());
+        JsonNode placed = json(place(f.member(), f.address(), 1, "http-stock-version-key", null)
+                .andExpect(status().isCreated()).andReturn());
+        UUID order = UUID.fromString(placed.path("id").asText());
+        assertThat(stock(f.firstVariant())).isEqualTo(4);
+        assertThat(stockVersion(f.firstVariant())).isEqualTo(1);
+        staleStockEdit(seller, f.firstVariant(), 0);
+        mvc.perform(post("/orders/{id}/cancellation", order)
+                .header("Authorization", token(f.member(), "MEMBER")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+        staleStockEdit(seller, f.firstVariant(), 1);
+        mvc.perform(get("/orders/{id}", order).header("Authorization", token(f.member(), "MEMBER")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+        mvc.perform(get("/seller/products/{id}", product).header("Authorization", token(seller, "SELLER")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.variants[0].stock.onHand").value(5))
+                .andExpect(jsonPath("$.variants[0].stock.version").value(2));
+        JdbcTemplate committed = committed();
+        assertThat(committed.queryForObject("SELECT on_hand FROM marketplace.stock WHERE variant_id=?",
+                Integer.class, f.firstVariant())).isEqualTo(5);
+        assertThat(committed.queryForObject("SELECT version FROM marketplace.stock WHERE variant_id=?",
+                Long.class, f.firstVariant())).isEqualTo(2);
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.audit_entry WHERE resource_id=?",
+                Integer.class, order)).isEqualTo(2);
+    }
+
+    private void staleStockEdit(UUID seller, UUID variant, long version) throws Exception {
+        mvc.perform(patch("/seller/stock/{id}", variant).header("Authorization", token(seller, "SELLER"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"onHand\":10,\"expectedVersion\":" + version + "}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_VERSION"));
+    }
 
     @Test void twoSellerCheckoutSnapshotsAndConsumesOneCartAtomically() throws Exception {
         Fixture f = fixture("two-seller", 2, 1);
@@ -173,41 +215,89 @@ class CheckoutPostgresRedTest {
         UUID secondAddress = address("last-unit-other", second);
         UUID secondCart = cart("last-unit-other", second, f.firstVariant(), null);
         jdbc.update("DELETE FROM marketplace.cart_line WHERE cart_id=? AND variant_id=?", f.cart(), f.secondVariant());
-        var start = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
-            var first = pool.submit(() -> { start.await(); return place(f.member(), f.address(), 1, "last-unit-first", null).andReturn(); });
-            var other = pool.submit(() -> { start.await(); return place(second, secondAddress, 1, "last-unit-other", null).andReturn(); });
-            start.countDown();
-            MvcResult a = first.get(20, TimeUnit.SECONDS);
-            MvcResult b = other.get(20, TimeUnit.SECONDS);
-            assertThat(List.of(a.getResponse().getStatus(), b.getResponse().getStatus()))
-                    .containsExactlyInAnyOrder(201, 409);
-            assertThat(json(a.getResponse().getStatus() == 409 ? a : b).path("code").asText())
-                    .isEqualTo("STOCK_UNAVAILABLE");
+        try (Connection gate = dataSource.getConnection(); var pool = Executors.newFixedThreadPool(2)) {
+            gate.setAutoCommit(false);
+            try (var lock = gate.prepareStatement("SELECT id FROM marketplace.variant WHERE id=? FOR UPDATE")) {
+                lock.setObject(1, f.firstVariant());
+                lock.executeQuery().close();
+            }
+            try {
+                var first = pool.submit(() -> place(f.member(), f.address(), 1, "last-unit-first", null).andReturn());
+                var other = pool.submit(() -> place(second, secondAddress, 1, "last-unit-other", null).andReturn());
+                awaitLockWaiters("SELECT p.id,p.seller_id,v.id%", 2);
+                gate.commit();
+                MvcResult a = first.get(20, TimeUnit.SECONDS);
+                MvcResult b = other.get(20, TimeUnit.SECONDS);
+                assertThat(List.of(a.getResponse().getStatus(), b.getResponse().getStatus()))
+                        .containsExactlyInAnyOrder(201, 409);
+                assertThat(json(a.getResponse().getStatus() == 409 ? a : b).path("code").asText())
+                        .isEqualTo("STOCK_UNAVAILABLE");
+            } finally {
+                gate.rollback();
+            }
         }
-        assertThat(stock(f.firstVariant())).isZero();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM marketplace.customer_order WHERE member_id IN (?,?)", Integer.class,
+        JdbcTemplate committed = committed();
+        assertThat(committed.queryForObject("SELECT on_hand FROM marketplace.stock WHERE variant_id=?",
+                Integer.class, f.firstVariant())).isZero();
+        assertThat(committed.queryForObject("SELECT version FROM marketplace.stock WHERE variant_id=?",
+                Long.class, f.firstVariant())).isEqualTo(1);
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.customer_order WHERE member_id IN (?,?)", Integer.class,
                 f.member(), second)).isEqualTo(1);
-        assertThat(count("marketplace.cart_line", "cart_id", secondCart)
-                + count("marketplace.cart_line", "cart_id", f.cart())).isEqualTo(1);
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.cart_line WHERE cart_id IN (?,?)",
+                Integer.class, secondCart, f.cart())).isEqualTo(1);
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.audit_entry WHERE action='ORDER_PLACED' "
+                + "AND actor_id IN (?,?)", Integer.class, f.member(), second)).isEqualTo(1);
     }
 
     @Test void concurrentIdenticalKeyReturnsOneOriginalOrderAndOneStockDecrement() throws Exception {
         Fixture f = fixture("same-key-race", 1, 0);
         jdbc.update("DELETE FROM marketplace.cart_line WHERE cart_id=? AND variant_id=?", f.cart(), f.secondVariant());
-        var start = new CountDownLatch(1);
-        try (var pool = Executors.newFixedThreadPool(2)) {
-            var first = pool.submit(() -> { start.await(); return place(f.member(), f.address(), 1, "same-key-race", null).andReturn(); });
-            var second = pool.submit(() -> { start.await(); return place(f.member(), f.address(), 1, "same-key-race", null).andReturn(); });
-            start.countDown();
-            MvcResult a = first.get(20, TimeUnit.SECONDS);
-            MvcResult b = second.get(20, TimeUnit.SECONDS);
-            assertThat(a.getResponse().getStatus()).isEqualTo(201);
-            assertThat(b.getResponse().getStatus()).isEqualTo(201);
-            assertThat(json(a)).isEqualTo(json(b));
+        try (Connection gate = dataSource.getConnection(); var pool = Executors.newFixedThreadPool(2)) {
+            gate.setAutoCommit(false);
+            try (var lock = gate.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+                lock.setString(1, f.member() + ":same-key-race");
+                lock.executeQuery().close();
+            }
+            try {
+                var first = pool.submit(() -> place(f.member(), f.address(), 1, "same-key-race", null).andReturn());
+                var second = pool.submit(() -> place(f.member(), f.address(), 1, "same-key-race", null).andReturn());
+                awaitLockWaiters("SELECT pg_advisory_xact_lock%", 2);
+                gate.commit();
+                MvcResult a = first.get(20, TimeUnit.SECONDS);
+                MvcResult b = second.get(20, TimeUnit.SECONDS);
+                assertThat(a.getResponse().getStatus()).isEqualTo(201);
+                assertThat(b.getResponse().getStatus()).isEqualTo(201);
+                assertThat(json(a)).isEqualTo(json(b));
+            } finally {
+                gate.rollback();
+            }
         }
-        assertThat(count("marketplace.customer_order", "member_id", f.member())).isEqualTo(1);
-        assertThat(stock(f.firstVariant())).isEqualTo(4);
+        JdbcTemplate committed = committed();
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.customer_order WHERE member_id=? AND idempotency_key=?",
+                Integer.class, f.member(), "same-key-race")).isEqualTo(1);
+        assertThat(committed.queryForObject("SELECT on_hand FROM marketplace.stock WHERE variant_id=?",
+                Integer.class, f.firstVariant())).isEqualTo(4);
+        assertThat(committed.queryForObject("SELECT version FROM marketplace.stock WHERE variant_id=?",
+                Long.class, f.firstVariant())).isEqualTo(1);
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.audit_entry WHERE action='ORDER_PLACED' AND actor_id=?",
+                Integer.class, f.member())).isEqualTo(1);
+    }
+
+    private void awaitLockWaiters(String queryPattern, int expected) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        int waiting = 0;
+        while (System.nanoTime() < deadline) {
+            waiting = jdbc.queryForObject("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' "
+                    + "AND query LIKE ? AND pid<>pg_backend_pid()", Integer.class, queryPattern);
+            if (waiting >= expected) return;
+            Thread.onSpinWait();
+        }
+        throw new AssertionError("Expected " + expected + " lock waiters for " + queryPattern + "; observed " + waiting);
+    }
+
+    private JdbcTemplate committed() {
+        return new JdbcTemplate(new DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
     }
 
     @Test void lateAuditFailureRollsBackStockOrderCartAndKey() throws Exception {
@@ -225,6 +315,8 @@ class CheckoutPostgresRedTest {
             jdbc.execute("DROP TRIGGER checkout_red_audit_failure ON marketplace.audit_entry");
             jdbc.execute("DROP FUNCTION marketplace.checkout_red_audit_failure()");
         }
+        place(f.member(), f.address(), 1, "late-failure-key", null).andExpect(status().isCreated());
+        assertThat(count("marketplace.customer_order", "member_id", f.member())).isEqualTo(1);
     }
 
     private org.springframework.test.web.servlet.ResultActions place(UUID member, UUID address, long version,

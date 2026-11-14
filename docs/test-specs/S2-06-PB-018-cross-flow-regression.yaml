@@ -1,0 +1,73 @@
+task_brief:
+  backlog: S2-06a/b / PB-018
+  source_revision:
+    phase_note: inkdrop://note/NcGUdfO9 revision 12
+    business_rules_sha256: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi_sha256: 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249
+    product_backlog_sha256: a5cf29f146eaa6ea4051b2362c6e156037d649ef3f39caa16dacc9cf38214ab2
+  use_cases: [UC-02, UC-04, UC-05, UC-06, UC-07]
+  business_rules: [BR-03, BR-04, BR-05, BR-07, BR-08, BR-09]
+  architecture_rules: [ARCH-01, ARCH-02, ARCH-04, ARCH-07]
+  domain: CustomerOrder owns checkout, cancellation and payment transitions; Inventory StockItem owns absolute quantity and version.
+  modules:
+    Ordering: Checkout, owned order reads, cancellation, Seller COD and audit orchestration through exported owner APIs.
+    Inventory: Checkout stock decrease/restore and Seller expected-version replacement; owns stock table.
+    Cart: Owned cart lock/consume and Guest merge; owns cart tables.
+    Identity: Trusted actor, owned address and SellerShop resolution.
+  commands: HTTP checkout, cancellation, mark-paid and stock edit each use their existing transactional input ports. Guest merge uses the login route.
+  queries: Member order detail and Seller product detail use existing owner-filtered immutable projections.
+  response: Existing OpenAPI status, body, problem codes and owner boundaries are asserted through WebMVC.
+  migration: none
+  files: [docs/test-specs/S2-06-PB-018-cross-flow-regression.yaml, src/checkoutRed/java/com/phucle/ecommerce/ordering/CheckoutPostgresRedTest.java, src/integrationTest/java/com/phucle/ecommerce/ordering/SellerCodPostgresTest.java, src/integrationTest/java/com/phucle/ecommerce/**]
+  unresolved_decisions: []
+scenarios:
+  - scenario_id: AT-UC-04-05-06-HTTP-STOCK-VERSION
+    title: Checkout and cancellation HTTP commands invalidate an old Seller stock edit
+    trace: {use_cases: [UC-04, UC-05, UC-06], business_rules: [BR-03, BR-05, BR-09], architecture_rules: [ARCH-02, ARCH-07]}
+    level: postgres + mvc
+    actor: Member owner and Seller owner with distinct Account ID and SellerShop ID
+    preconditions: [Two published Seller offers, owned address and cart, stock quantity 5 and version 0]
+    input: POST /orders, PATCH /seller/stock/{variantId} with expectedVersion 0, POST /orders/{orderId}/cancellation, PATCH with expectedVersion 1, GET /seller/products/{productId}
+    given: Disposable Testcontainers PostgreSQL fixture with generated order and actor IDs
+    when: Checkout commits, Seller tries stale edit, Member cancels, Seller tries stale edit again
+    then: {returned_result_or_error: 'checkout 201, stale edits 409 STALE_VERSION, cancel 200, Seller detail 200', persisted_state: 'stock returns to 5 at version 2; order CANCELLED; one placed and one cancellation audit', forbidden_effects: 'no stale overwrite, no extra restore'}
+    fixtures: Existing CheckoutPostgresRedTest fixture
+    concurrency: Sequential committed HTTP transactions, each response observed before the next command
+    automation: {test_class: CheckoutPostgresRedTest, test_method: checkoutCancellationAndSellerEditShareStockVersion, command: './gradlew checkoutRed --tests com.phucle.ecommerce.ordering.CheckoutPostgresRedTest'}
+    cleanup: Disposable database
+    status: GREEN
+  - scenario_id: AT-UC-04-LAST-UNIT
+    automation: {test_class: CheckoutPostgresRedTest, test_method: twoMembersRacingForLastUnitCommitOnlyOneOrder}
+    evidence_target: Two independent bounded HTTP requests; one 201 and one 409; fresh connection confirms one order, one stock decrement, no failed key or audit.
+  - scenario_id: AT-UC-04-SAME-KEY
+    automation: {test_class: CheckoutPostgresRedTest, test_method: concurrentIdenticalKeyReturnsOneOriginalOrderAndOneStockDecrement}
+    evidence_target: Two independent bounded HTTP requests; both 201 with equal snapshots; fresh connection confirms one order/key/audit and one decrement.
+  - scenario_id: AT-UC-04-LATE-AUDIT
+    automation: {test_class: CheckoutPostgresRedTest, test_method: lateAuditFailureRollsBackStockOrderCartAndKey}
+    evidence_target: Audit trigger fails after mutations; stock, cart, order and key roll back.
+  - scenario_id: AT-UC-05-07-RACE
+    automation: {test_class: SellerCodPostgresTest, test_methods: [cancelWinsRootLockBeforePayment, paymentWinsRootLockBeforeCancel]}
+    evidence_target: Separate gate and HTTP transactions; PostgreSQL lock wait observed within 10 seconds; committed outcome checked through a fresh connection.
+  - scenario_id: AT-UC-07-TWO-SELLERS
+    automation: {test_class: SellerCodPostgresTest, test_method: twoSellersMarkConcurrentlyWithoutLostPayment}
+    evidence_target: Two independent bounded HTTP commands with observed root lock wait; fresh connection confirms two PAID portions and two audits.
+  - scenario_id: AT-UC-02-GUEST-MERGE
+    automation: {test_class: CartHttpIntegrationTest, test_methods: [memberLoginConsumesGuestCartOnce, concurrentMergeConsumesOneGuestSourceOnlyOnce]}
+    evidence_target: Login merges once and concurrent merge cannot consume source twice.
+  - scenario_id: AT-UC-06-STALE-STOCK
+    automation: {test_class: SellerStockPostgresTest, test_methods: [absoluteEditRequiresCurrentVersion, competingAbsoluteEditsCannotBothUseOneVersion]}
+    evidence_target: Stale absolute edit is 409 and two same-version writes have one winner.
+evidence:
+  base_revision: 01cd282dea0bea4833f2544339b34f2f89d2bdd8
+  baseline: '2026-11-14: check jar bootJar without --rerun-tasks succeeded but test tasks were UP-TO-DATE, so this is not fresh execution evidence. An initial unescalted run was blocked by the Gradle cache sandbox; a writable isolated Gradle home then hit unavailable network for wrapper download. Escalated local Gradle cache and Docker access allowed execution.'
+  test_source_sha256:
+    checkout: 08b8a5d7a3038975b16c88fec43941ce5cbac54dee1d45c454a02b1992f1b5fd
+    seller_cod: 0e28b5850aaa9548b724d6f87be363dc0c02c39f14ab84548e58787027267b1c
+  red: 'Existing behavior regression: no production behavior was introduced. First focused run had 10 tests, 1 test-harness assertion failure: the stock lock gate observed one waiter because CheckoutOffers locks the catalog variant before updating stock. Moved the gate to the variant row. This is not a behavioral RED.'
+  focused_green: '2026-11-14: checkoutRed --tests com.phucle.ecommerce.ordering.CheckoutPostgresRedTest; 10 PostgreSQL tests, zero failures or skips. Two checkout races have 10-second observed PostgreSQL wait and 20-second completion bounds; committed-state checks use a fresh connection.'
+  green: '2026-11-14: rtk ./gradlew check jar bootJar --rerun-tasks --console=plain --no-daemon --continue; BUILD SUCCESSFUL, 13/13 tasks executed. test: 33, integrationTest: 55, checkoutRed: 17; zero failures, errors or skips in each suite. Both JARs built.'
+  reports: [build/test-results/test, build/test-results/integrationTest, build/test-results/checkoutRed, build/reports/tests/test, build/reports/tests/integrationTest, build/reports/tests/checkoutRed]
+  contracts: 'rtk node ../docs-minimal/util/validate-api.mjs passed: 38 operations, 10 use cases, 59 reachable schemas. HTTP tests assert contract status/code, ownership and core response fields; production profile test asserts no seeded accounts, shops or products and no quick-login route.'
+  boundaries: 'ModuleStructureTest and ArchUnit tests passed in the 33-test suite; generated mapper tests and source policy passed. No production SQL or migration changed; existing module/table ownership remains intact.'
+  limitation: 'This PB-018 pass covers the implemented PB-002–010 slice. It is not the Phase 7 two-run HTTP demo rehearsal or full 38-operation release schema validation. PB-018 remains pending the common delivery gate before DONE.'
+  implementation_revision: 'uncommitted working tree based on 01cd282dea0bea4833f2544339b34f2f89d2bdd8'

@@ -96,16 +96,6 @@ configurations {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-    doLast {
-        val testCount = reports.junitXml.outputLocation.get().asFile
-            .walkTopDown()
-            .filter { it.isFile && it.name.startsWith("TEST-") && it.extension == "xml" }
-            .sumOf { report ->
-                Regex("tests=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
-            }
-        check(testCount > 0) { "${path} discovered zero tests" }
-    }
-}
 
 val integrationTest = tasks.register<Test>("integrationTest") {
     description = "Runs isolated PostgreSQL integration-contract tests."
@@ -115,9 +105,24 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     shouldRunAfter(tasks.test)
     useJUnitPlatform()
 }
+doLast {
+    val xmlReports = reports.junitXml.outputLocation.get().asFile
+        .walkTopDown()
+        .filter { it.isFile && it.name.startsWith("TEST-") && it.extension == "xml" }
+        .toList()
+    val testCount = xmlReports.sumOf { report ->
+        Regex("tests=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
+    }
+    val skippedCount = xmlReports.sumOf { report ->
+        Regex("skipped=\\\"(\\d+)\\\"").find(report.readText())?.groupValues?.get(1)?.toInt() ?: 0
+    }
+    check(testCount > 0) { "${path} discovered zero tests" }
+    check(skippedCount == 0) { "${path} skipped $skippedCount tests" }
+}
+}
 
 tasks.register<Test>("checkoutRed") {
-    description = "Runs the deliberately failing PB-006 checkout contract suite."
+    description = "Runs PB-006 checkout and cross-flow regression contracts."
     group = "verification"
     testClassesDirs = sourceSets["checkoutRed"].output.classesDirs
     classpath = sourceSets["checkoutRed"].runtimeClasspath

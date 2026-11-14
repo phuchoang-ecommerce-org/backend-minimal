@@ -15,7 +15,6 @@ import java.sql.Connection;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
@@ -203,17 +202,28 @@ class SellerCodPostgresTest {
 
     @Test void twoSellersMarkConcurrentlyWithoutLostPayment() throws Exception {
         Fixture f = fixture();
-        try (var pool = Executors.newFixedThreadPool(2)) {
-            CountDownLatch start = new CountDownLatch(1);
-            var first = pool.submit(() -> markAfter(start, f.sellerA(), f.portionA()));
-            var second = pool.submit(() -> markAfter(start, f.sellerB(), f.portionB()));
-            start.countDown();
-            assertThat(first.get(20, TimeUnit.SECONDS)).isEqualTo(200);
-            assertThat(second.get(20, TimeUnit.SECONDS)).isEqualTo(200);
+        try (Connection gate = dataSource.getConnection(); var pool = Executors.newFixedThreadPool(2)) {
+            gate.setAutoCommit(false);
+            try (var lock = gate.prepareStatement("SELECT id FROM marketplace.customer_order WHERE id=? FOR UPDATE")) {
+                lock.setObject(1, f.order());
+                lock.executeQuery().close();
+            }
+            try {
+                var first = pool.submit(() -> markStatus(f.sellerA(), f.portionA()));
+                var second = pool.submit(() -> markStatus(f.sellerB(), f.portionB()));
+                awaitRootWaiters(2);
+                gate.commit();
+                assertThat(first.get(20, TimeUnit.SECONDS)).isEqualTo(200);
+                assertThat(second.get(20, TimeUnit.SECONDS)).isEqualTo(200);
+            } finally {
+                gate.rollback();
+            }
         }
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM marketplace.seller_order WHERE customer_order_id=? AND payment_status='PAID'",
+        JdbcTemplate committed = new JdbcTemplate(new DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.seller_order WHERE customer_order_id=? AND payment_status='PAID'",
                 Integer.class, f.order())).isEqualTo(2);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM marketplace.audit_entry WHERE action='SELLER_ORDER_PAID' AND resource_id IN (?,?)",
+        assertThat(committed.queryForObject("SELECT count(*) FROM marketplace.audit_entry WHERE action='SELLER_ORDER_PAID' AND resource_id IN (?,?)",
                 Integer.class, f.portionA(), f.portionB())).isEqualTo(2);
         mvc.perform(get("/orders/{id}", f.order()).header("Authorization", token(f.member(), "MEMBER")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.paymentStatus").value("PAID"));
@@ -271,8 +281,7 @@ class SellerCodPostgresTest {
     }
 
     private int markStatus(Fixture f) throws Exception {
-        return mvc.perform(post("/seller/orders/{id}/mark-paid", f.portionA())
-                .header("Authorization", token(f.sellerA(), "SELLER"))).andReturn().getResponse().getStatus();
+        return markStatus(f.sellerA(), f.portionA());
     }
 
     private void assertRaceResult(Fixture f, String orderStatus,
@@ -297,8 +306,7 @@ class SellerCodPostgresTest {
                 Integer.class, f.portionA())).isEqualTo(paymentAudits);
     }
 
-    private int markAfter(CountDownLatch start, UUID seller, UUID portion) throws Exception {
-        start.await();
+    private int markStatus(UUID seller, UUID portion) throws Exception {
         return mvc.perform(post("/seller/orders/{id}/mark-paid", portion)
                 .header("Authorization", token(seller, "SELLER")))
                 .andReturn().getResponse().getStatus();

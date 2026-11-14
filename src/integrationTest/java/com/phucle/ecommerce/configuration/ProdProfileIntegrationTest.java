@@ -1,5 +1,6 @@
 package com.phucle.ecommerce.configuration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -17,7 +19,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 @ActiveProfiles("prod")
 @AutoConfigureMockMvc
 @SpringBootTest(classes = MarketplaceApplication.class)
@@ -31,6 +33,8 @@ class ProdProfileIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -46,6 +50,9 @@ class ProdProfileIntegrationTest {
 
     @Test
     void prodStartsWithoutFixturesAndDoesNotExposeQuickLogin() throws Exception {
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM marketplace.account", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM marketplace.seller_shop", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM marketplace.product", Integer.class)).isZero();
         mockMvc.perform(post("/dev/quick-login"))
                 .andExpect(status().isNotFound());
     }
