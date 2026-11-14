@@ -1,0 +1,227 @@
+Run 1: PASS, 18 operations, 48 HTTP assertions
+Run 2: PASS, 18 operations, 48 HTTP assertions
+{
+  "status": "PASS",
+  "revision": "e1284d7a6da51c29dff50e013f7d51c93db6084f",
+  "runs": [
+    {
+      "operations": {
+        "cancelUnpaidOrder": [
+          409,
+          200,
+          200
+        ],
+        "createOwnCheckoutAddress": [
+          201
+        ],
+        "getOwnCart": [
+          200,
+          200,
+          200,
+          200
+        ],
+        "getOwnOrder": [
+          200,
+          200,
+          200,
+          404
+        ],
+        "getOwnProduct": [
+          200,
+          200
+        ],
+        "getProduct": [
+          200,
+          200,
+          200,
+          200
+        ],
+        "listCategories": [
+          200
+        ],
+        "listOwnCheckoutAddresses": [
+          200,
+          200
+        ],
+        "listOwnOrders": [
+          200
+        ],
+        "listOwnSellerOrders": [
+          200,
+          200
+        ],
+        "listProducts": [
+          200
+        ],
+        "logIn": [
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "markOwnOrderPaid": [
+          404,
+          200,
+          200,
+          409
+        ],
+        "placeCodOrder": [
+          201,
+          201,
+          409,
+          201
+        ],
+        "registerMember": [
+          201,
+          201
+        ],
+        "removeCartLine": [
+          204
+        ],
+        "setCartLine": [
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "updateOwnStock": [
+          409,
+          200
+        ]
+      },
+      "assertions": 48,
+      "paidOrder": "65af6b0f-fdf9-4d8d-8f79-0b183a82459f",
+      "cancelledOrder": "6fdaa7a5-e0d9-491f-9411-e876a47873ee",
+      "stockVersion": 4,
+      "run": 1,
+      "database": "fresh disposable PostgreSQL 18"
+    },
+    {
+      "operations": {
+        "cancelUnpaidOrder": [
+          409,
+          200,
+          200
+        ],
+        "createOwnCheckoutAddress": [
+          201
+        ],
+        "getOwnCart": [
+          200,
+          200,
+          200,
+          200
+        ],
+        "getOwnOrder": [
+          200,
+          200,
+          200,
+          404
+        ],
+        "getOwnProduct": [
+          200,
+          200
+        ],
+        "getProduct": [
+          200,
+          200,
+          200,
+          200
+        ],
+        "listCategories": [
+          200
+        ],
+        "listOwnCheckoutAddresses": [
+          200,
+          200
+        ],
+        "listOwnOrders": [
+          200
+        ],
+        "listOwnSellerOrders": [
+          200,
+          200
+        ],
+        "listProducts": [
+          200
+        ],
+        "logIn": [
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "markOwnOrderPaid": [
+          404,
+          200,
+          200,
+          409
+        ],
+        "placeCodOrder": [
+          201,
+          201,
+          409,
+          201
+        ],
+        "registerMember": [
+          201,
+          201
+        ],
+        "removeCartLine": [
+          204
+        ],
+        "setCartLine": [
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "updateOwnStock": [
+          409,
+          200
+        ]
+      },
+      "assertions": 48,
+      "paidOrder": "f83c4229-dc74-4265-ac25-60d4bf2a4de7",
+      "cancelledOrder": "db0137b1-f619-4654-b01e-cb8be5f27180",
+      "stockVersion": 4,
+      "run": 2,
+      "database": "fresh disposable PostgreSQL 18"
+    }
+  ],
+  "tests": {
+    "suites": {
+      "test": {
+        "tests": 33,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "integrationTest": {
+        "tests": 55,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "checkoutRed": {
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "raceRollback": {
+      "lastUnit": "PASS",
+      "sameKey": "PASS",
+      "cancelWins": "PASS",
+      "paymentWins": "PASS",
+      "twoSellerPayment": "PASS",
+      "checkoutAuditRollback": "PASS",
+      "paymentAuditRollback": "PASS"
+    }
+  }
+}
