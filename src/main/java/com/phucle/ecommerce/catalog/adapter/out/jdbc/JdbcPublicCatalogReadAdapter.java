@@ -1,6 +1,7 @@
 package com.phucle.ecommerce.catalog.adapter.out.jdbc;
 
 import com.phucle.ecommerce.catalog.api.PublicCatalogReadPort;
+import com.phucle.ecommerce.catalog.api.OwnedCatalogReadPort;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -13,7 +14,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-class JdbcPublicCatalogReadAdapter implements PublicCatalogReadPort {
+class JdbcPublicCatalogReadAdapter implements PublicCatalogReadPort, OwnedCatalogReadPort {
     private final NamedParameterJdbcTemplate jdbc;
     JdbcPublicCatalogReadAdapter(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
@@ -54,6 +55,23 @@ class JdbcPublicCatalogReadAdapter implements PublicCatalogReadPort {
                 WHERE p.id=:id AND p.published AND s.status='ACTIVE'
                 """, new MapSqlParameterSource("id", id), (r,n) -> core(r));
         return rows.isEmpty() ? null : enrich(rows).getFirst();
+    }
+
+    @Override public Product product(UUID id, UUID sellerShopId) {
+        List<Core> rows = jdbc.query("""
+                SELECT p.id,p.seller_id,p.category_id,p.title,p.description,p.published,p.version
+                FROM marketplace.product p WHERE p.id=:id AND p.seller_id=:seller
+                """, new MapSqlParameterSource("id", id).addValue("seller", sellerShopId), (r,n) -> core(r));
+        return rows.isEmpty() ? null : enrich(rows).getFirst();
+    }
+
+    @Override public boolean ownsVariant(UUID variantId, UUID sellerShopId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM marketplace.variant v
+                JOIN marketplace.product p ON p.id=v.product_id
+                WHERE v.id=:variant AND p.seller_id=:seller
+                """, new MapSqlParameterSource("variant", variantId).addValue("seller", sellerShopId), Integer.class);
+        return count != null && count == 1;
     }
 
     private Core core(ResultSet r) throws SQLException {

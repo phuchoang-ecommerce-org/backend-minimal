@@ -1,0 +1,54 @@
+task_brief:
+  backlog: S2-05 / PB-010 refactor
+  feedback: inkdrop://note/yOqKR__8
+  source_revision:
+    modular_monolith_sha256: d04c72d685fd5c74c08ab7ef43509ebc744a34d31e73f1b3cc9a5347228190d1
+    mapstruct_sha256: 075c29105586e79ff461ec82cc4cde83aeea96873bf06feeaf5e59fded1b09c8
+  use_cases: [UC-06]
+  business_rules: [BR-03, BR-05]
+  architecture_rules: [ARCH-02, ARCH-04, ARCH-07]
+  domain: StockItem.replace returns the sole valid replacement state; the adapter saves that state conditionally against the previous version.
+  module_decision: Identity owns trusted actor and SellerShop status. Inventory command and Discovery Seller detail already consume those exported APIs. Align the approved dependency table with those direct dependencies, preserving owner/status checks and the transaction boundary; do not introduce an orchestration module or foreign SQL.
+  command: SellerStockCommands accepts an immutable payload mapped from a strict Web request DTO; the write port accepts old/new StockItem values and returns the stored result only after a version-guarded update.
+  query: Seller own-product detail stays on the existing owner-filtered REPEATABLE READ path and maps its application view to a Web response DTO.
+  web: A parser in StockUpdateRequest validates the exact JSON shape, then adapter-local MapStruct maps request/payload and application result/response. Seller product detail uses an adapter-local MapStruct mapper and a Product response DTO.
+  expected_http: Existing 200/400/401/403/404/409 behavior and OpenAPI Product/Stock shapes remain unchanged.
+  files: Inventory command/write port/JDBC/controller/DTO/mapper; Discovery controller/DTO/mapper; architecture decision table; test source and scenario evidence.
+  migration: none
+  unresolved_decisions: []
+scenarios:
+  - scenario_id: AT-UC-06-REFACTOR-DOMAIN-WRITE
+    title: Persistence receives the StockItem transition produced by the domain
+    level: architecture + postgres
+    given: Existing Phase 5 stock tests are GREEN.
+    when: Inspect write port signature and run versioned edit/race tests.
+    then: Port accepts prior and updated StockItem; adapter writes updated onHand/version under prior version guard; one same-version edit wins.
+    test: SellerStockRefactorBoundaryTest.writePortAcceptsDomainTransition; SellerStockPostgresTest.competingAbsoluteEditsCannotBothUseOneVersion
+    status: GREEN
+  - scenario_id: AT-UC-06-REFACTOR-WEB-MAPPING
+    title: Both Seller routes return Web DTOs mapped at their inbound boundary
+    level: architecture + postgres
+    given: Existing Phase 5 route tests are GREEN.
+    when: Inspect controller return types/MapStruct mappers and run owner/error tests.
+    then: Stock controller returns StockResponse; Seller product controller returns SellerProductResponse; strict request body validation and public JSON shape remain.
+    test: SellerStockRefactorBoundaryTest.sellerRoutesUseWebResponses; SellerStockPostgresTest
+    status: GREEN
+  - scenario_id: AT-UC-06-REFACTOR-MODULE-DOC
+    title: Approved module table matches direct exported Identity API dependencies
+    level: architecture
+    given: Discovery and Inventory need trusted SellerShop lookup for UC-06.
+    when: Compare package allowlists and approved modular-monolith dependency table.
+    then: Both allow identity through its exported API; no foreign SQL or new cycle.
+    test: ModuleStructureTest; manual table review
+    status: GREEN
+evidence:
+  base_revision: 1da87c6
+  structural_red: '2026-11-14: rtk ./gradlew test --tests com.phucle.ecommerce.architecture.SellerStockRefactorBoundaryTest --console=plain --no-daemon; 2 tests executed, 2 structural failures: write port expected replace(StockItem,StockItem) but had only scalar signature; StockResponse/Web mapper classes absent. Compile succeeded; this is not behavioral RED.'
+  structural_test_source_sha256: 0d9a32e10be37dcafa1cf48af5a0feb45620ccc787bdfc6b9985c64d2d221d5f
+  mapper_test_source_sha256: [0abb52e3f6006eb41a76937c0e7376658a6aefcfb6358bb732f58154dfd22b7f, 082f5b9ab7266a91f6eba62f472ad0ea700536cc41ff1595cffef8c1111aa483]
+  behavior_baseline: 'Phase 5: 29 unit/architecture, 55 integration, 16 checkoutRed; zero failures/skips.'
+  green: '2026-11-14: rtk ./gradlew check jar bootJar --console=plain --no-daemon --continue; BUILD SUCCESSFUL. 33 unit/architecture, 55 integration including 6 Phase 5, 16 checkoutRed; zero failures/skips; both JARs built. Reports under build/reports/tests/{test,integrationTest,checkoutRed}.'
+  http: 'Existing owner, suspended-read, inactive-write, foreign/missing, stale-version, invalid-body and concurrent-edit results remained GREEN on PostgreSQL.'
+  boundaries: 'Modulith/ArchUnit GREEN; approved modular-monolith table/diagram now lists Inventory and Discovery Identity API dependencies. New Inventory SQL remains stock-only; no new cross-module table write, migration, or dependency cycle.'
+  method_review: 'StockUpdateRequest.parse owns strict JSON structure/number checks; controller delegates payload/result conversion to adapter-local MapStruct. Other assigned methods remain one query, transition, or use-case orchestration.'
+  implementation_revision: 'uncommitted working trees based on backend 1da87c6 and existing docs-minimal state'

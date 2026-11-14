@@ -1,0 +1,124 @@
+task_brief:
+  backlog: S2-05a/b / PB-010
+  source_revision:
+    business_rules_sha256: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi_sha256: 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249
+    phase_note: inkdrop://note/NcGUdfO9 revision 10
+  use_cases: [UC-06]
+  business_rules: [BR-03, BR-05]
+  architecture_rules: [ARCH-02, ARCH-04, ARCH-07]
+  domain: Inventory StockItem owns nonnegative absolute onHand and version transition; checkout and cancellation already increment the same version.
+  modules:
+    Identity: SellerShopDirectory resolves a trusted Account ID to SellerShop ID and status; owns seller_shop table.
+    Catalog: Exports owner-filtered product/variant/image read and variant ownership API; owns product, variant and product_image tables.
+    Inventory: Versioned stock command and existing stock read API; owns stock table. Uses Catalog ownership API, not foreign SQL.
+    Reviews: Existing public summary API supplies rating fields for the Product response.
+    Discovery: Seller detail query composes Catalog, Inventory and Reviews projections, and returns an immutable application view in one REPEATABLE READ transaction.
+  query: DiscoveryQueryPort has a separate getOwnProduct query intent; catalog core, stock and review summary are read in one REPEATABLE READ transaction.
+  command: SellerStockCommands checks trusted Seller role, owned variant through Catalog API, active shop through Identity API, then conditionally replaces stock onHand by expectedVersion in one transaction. Zero updated rows after a successful owner lookup means STALE_VERSION.
+  response: GET uses the OpenAPI Product shape including stock versions; PATCH uses Stock. Guest 401; wrong role 403; foreign/missing 404; inactive shop 403; stale 409; invalid body 400.
+  migration: none; stock.version already exists in V1.
+  files: Identity directory API/adapter; Catalog owned read API/JDBC; Discovery query/Web; Inventory domain/command/JDBC/Web; security/advice; PostgreSQL tests.
+  unresolved_decisions: []
+scenarios:
+  - scenario_id: AT-UC-06-OWN-UNPUBLISHED-READ
+    title: Seller reads own unpublished product and current stock while shop is suspended
+    trace: {use_cases: [UC-06], business_rules: [BR-05], architecture_rules: [ARCH-02, ARCH-04]}
+    level: postgres + mvc
+    actor: Seller with Account ID distinct from SellerShop ID
+    preconditions: [Own unpublished product with one variant and stock version, Suspended shop]
+    input: GET /seller/products/{productId}
+    given: Isolated PostgreSQL fixture
+    when: Authenticated Seller reads product
+    then: {returned_result_or_error: '200 Product with unpublished data and stock version', persisted_state: unchanged, forbidden_effects: no foreign product data}
+    fixtures: generated UUIDs; disposable Testcontainers PostgreSQL
+    concurrency: not applicable
+    automation: {test_class: SellerStockPostgresTest, test_method: ownUnpublishedProductIsVisibleWhileSuspended}
+    cleanup: disposable database
+    status: GREEN
+  - scenario_id: AT-UC-06-OWNER-AND-ROLE
+    title: Foreign product and stock IDs are hidden
+    trace: {use_cases: [UC-06], business_rules: [BR-05], architecture_rules: [ARCH-02]}
+    level: postgres + mvc
+    actor: Seller A, Seller B, Member and Guest
+    preconditions: [Two SellerShops, one product and stock per shop]
+    input: GET product and PATCH stock with foreign/missing IDs
+    given: Isolated PostgreSQL fixture
+    when: Calls cross owner and role boundaries
+    then: {returned_result_or_error: 'foreign/missing 404, wrong role 403, Guest 401', persisted_state: unchanged, forbidden_effects: no foreign data or stock mutation}
+    fixtures: generated UUIDs; disposable Testcontainers PostgreSQL
+    concurrency: not applicable
+    automation: {test_class: SellerStockPostgresTest, test_method: foreignResourcesAndRolesAreDenied}
+    cleanup: disposable database
+    status: GREEN
+  - scenario_id: AT-UC-06-VERSIONED-STOCK
+    title: Absolute stock edit uses expectedVersion and rejects stale writes
+    trace: {use_cases: [UC-06], business_rules: [BR-03, BR-05], architecture_rules: [ARCH-07]}
+    level: postgres + mvc
+    actor: Active owner Seller
+    preconditions: [Owned variant with onHand 3 and version 0]
+    input: PATCH with onHand 8 and expectedVersion 0; replay old version; negative and missing values
+    given: Isolated PostgreSQL fixture
+    when: Seller sends edits
+    then: {returned_result_or_error: '200 Stock version 1; stale 409 STALE_VERSION; invalid 400', persisted_state: 'onHand 8, version 1', forbidden_effects: no stale overwrite}
+    fixtures: generated UUIDs; disposable Testcontainers PostgreSQL
+    concurrency: two edits may share old version; only one can update
+    automation: {test_class: SellerStockPostgresTest, test_method: absoluteEditRequiresCurrentVersion}
+    cleanup: disposable database
+    status: GREEN
+  - scenario_id: AT-UC-06-INACTIVE-WRITE
+    title: Suspended Seller cannot edit owned stock
+    trace: {use_cases: [UC-06], business_rules: [BR-05], architecture_rules: [ARCH-02]}
+    level: postgres + mvc
+    actor: Suspended owner Seller
+    preconditions: [Owned product and stock]
+    input: PATCH onHand 8 expectedVersion 0
+    given: Isolated PostgreSQL fixture
+    when: Seller edits stock
+    then: {returned_result_or_error: '403 SELLER_INACTIVE', persisted_state: unchanged, forbidden_effects: no update}
+    fixtures: generated UUIDs; disposable Testcontainers PostgreSQL
+    concurrency: not applicable
+    automation: {test_class: SellerStockPostgresTest, test_method: suspendedShopCannotWriteStock}
+    cleanup: disposable database
+    status: GREEN
+  - scenario_id: AT-UC-06-CHECKOUT-CANCEL-STALE
+    title: Checkout decrement and cancellation restore invalidate old Seller edits
+    trace: {use_cases: [UC-04, UC-05, UC-06], business_rules: [BR-03, BR-05, BR-09], architecture_rules: [ARCH-07]}
+    level: postgres + mvc
+    actor: Active owner Seller
+    preconditions: [Owned stock onHand 3 version 0]
+    input: PATCH with old expectedVersion after CheckoutStock decrease then restore
+    given: Isolated PostgreSQL fixture; real CheckoutStock provider
+    when: Checkout decrease and cancellation restore each commit before Seller edit
+    then: {returned_result_or_error: '409 STALE_VERSION after each mutation; GET reports current version', persisted_state: 'no lost decrement or restoration', forbidden_effects: no stale overwrite}
+    fixtures: generated UUIDs; disposable Testcontainers PostgreSQL
+    concurrency: independent committed operations; race regression belongs to Phase 6
+    automation: {test_class: SellerStockPostgresTest, test_method: checkoutAndCancelInvalidateOldStockEdit}
+    cleanup: disposable database
+    status: GREEN
+  - scenario_id: AT-UC-06-SAME-VERSION-RACE
+    title: Two absolute edits with the same expectedVersion cannot both commit
+    trace: {use_cases: [UC-06], business_rules: [BR-03, BR-05], architecture_rules: [ARCH-07]}
+    level: postgres + mvc
+    actor: Active owner Seller
+    preconditions: [Owned stock onHand 3 version 0]
+    input: Two PATCH requests with distinct absolute quantities and expectedVersion 0
+    given: Isolated PostgreSQL fixture
+    when: Both requests start at a CountDownLatch barrier on independent threads
+    then: {returned_result_or_error: 'one 200 and one 409', persisted_state: 'winning quantity and version 1', forbidden_effects: no lost update}
+    fixtures: generated UUIDs; disposable Testcontainers PostgreSQL
+    concurrency: barrier, two requests, 20 second bound, committed database assertion
+    automation: {test_class: SellerStockPostgresTest, test_method: competingAbsoluteEditsCannotBothUseOneVersion}
+    cleanup: disposable database
+    status: GREEN
+evidence:
+  base_revision: 1da87c603efbeb5d9f7e306c62cc6aabfc1018c5
+  test_source_sha256: f240d998b7bf03b26ca3dcb80bde61079ae55325fd70c2c90f6e5c62de405833
+  red: '2026-11-14: rtk ./gradlew integrationTest --tests com.phucle.ecommerce.inventory.SellerStockPostgresTest --console=plain --no-daemon; 5 tests, 5 behavioral assertion failures. Seller routes denied by security before implementation: expected 200/404/409 or SELLER_INACTIVE, actual 403 ROLE_DENIED. Initial Gradle cache permission failure was a blocker and is excluded from RED evidence.'
+  validation_red: '2026-11-14: focused 6-test PostgreSQL run after adding fractional JSON cases; 1 behavioral failure: fractional onHand expected 400 but actual 200. The concurrent edit test passed.'
+  final_test_source_sha256: 2215abec920bd76e1bbf9eee8bde3e0a74309e94a30ae62f3544eae4ab2685ed
+  green: '2026-11-14: rtk ./gradlew check jar bootJar --console=plain --no-daemon --continue; BUILD SUCCESSFUL, 29 unit/architecture, 55 integration including 6 Phase 5, 16 checkoutRed; zero failures/skips. Reports in build/reports/tests/{test,integrationTest,checkoutRed}; both JARs built.'
+  http: 'Owned unpublished/suspended detail 200; owned stock update 200 with version increment; stale 409; foreign/missing 404; inactive write 403; wrong role 403; Guest 401; malformed/negative/fractional/unexpected fields 400.'
+  boundaries: 'ModuleStructureTest GREEN; new Identity SQL reads seller_shop only, new Catalog SQL reads product/variant only, new Inventory SQL reads/writes stock only. No migration. SellerShop ID resolved from trusted Account ID.'
+  limitation: 'Phase 5 verifies stale edits after the real CheckoutStock decrease/restore provider operations. Full checkout/cancel HTTP cross-flow and controlled race regression remain Phase 6 gates.'
+  implementation_revision: 'uncommitted working tree based on 1da87c6'

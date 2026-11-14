@@ -4,6 +4,8 @@ import com.phucle.ecommerce.identity.api.InvalidCredentialsException;
 import com.phucle.ecommerce.identity.api.LoginAlreadyExistsException;
 import com.phucle.ecommerce.shared.InvalidCursorException;
 import com.phucle.ecommerce.discovery.PublicProductNotFoundException;
+import com.phucle.ecommerce.discovery.SellerProductRoleDeniedException;
+import com.phucle.ecommerce.inventory.application.StockFailure;
 import com.phucle.ecommerce.cart.domain.CartFailure;
 import com.phucle.ecommerce.ordering.application.OrderFailure;
 import com.phucle.ecommerce.ordering.domain.OrderStateCorruption;
@@ -52,6 +54,18 @@ class GlobalExceptionHandler {
         };
         return ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problems.create(status, exception.code(), "The order request could not be completed"));
+    }
+
+    @ExceptionHandler({StockFailure.class, SellerProductRoleDeniedException.class})
+    ResponseEntity<ApiProblem> sellerStockError(RuntimeException exception) {
+        String code = exception instanceof StockFailure stock ? stock.code() : "ROLE_DENIED";
+        HttpStatus status = switch (code) {
+            case "ROLE_DENIED", "SELLER_INACTIVE" -> HttpStatus.FORBIDDEN;
+            case "RESOURCE_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+            default -> HttpStatus.CONFLICT;
+        };
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problems.create(status, code, "The seller request could not be completed"));
     }
 
     @ExceptionHandler(CartFailure.class)

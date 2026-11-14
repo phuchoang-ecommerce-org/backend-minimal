@@ -3,6 +3,7 @@ package com.phucle.ecommerce.discovery;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import com.phucle.ecommerce.identity.api.TrustedActor;
 
 interface DiscoveryQueryPort {
     record Page<T>(List<T> items, String nextCursor, boolean hasNext) {
@@ -24,4 +25,5 @@ interface DiscoveryQueryPort {
     Page<Category> categories(String cursor, int limit);
     Page<Product> products(String q, UUID categoryId, BigDecimal minPrice, BigDecimal maxPrice, String cursor, int limit);
     Product product(UUID id);
+    Product ownProduct(TrustedActor actor, UUID id);
 }

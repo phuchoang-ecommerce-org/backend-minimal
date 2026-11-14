@@ -6,4 +6,6 @@ import java.util.UUID;
 /** Trusted mapping from an authenticated Seller account to its shop identity. */
 public interface SellerShopDirectory {
     Optional<UUID> shopIdForAccount(UUID accountId);
+    record Shop(UUID id, boolean active) {}
+    Optional<Shop> lockShopForStockWrite(UUID accountId);
 }

@@ -1,2 +1,2 @@
-@org.springframework.modulith.ApplicationModule(allowedDependencies = {"shared", "catalog :: api"})
+@org.springframework.modulith.ApplicationModule(allowedDependencies = {"shared", "catalog :: api", "identity :: api"})
 package com.phucle.ecommerce.inventory;

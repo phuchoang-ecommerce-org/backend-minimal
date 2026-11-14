@@ -14,4 +14,9 @@ class JdbcSellerShopDirectory implements SellerShopDirectory {
         return jdbc.query("SELECT id FROM marketplace.seller_shop WHERE account_id=?",
                 (rs, row) -> rs.getObject(1, UUID.class), accountId).stream().findFirst();
     }
+    @Override public Optional<Shop> lockShopForStockWrite(UUID accountId) {
+        return jdbc.query("SELECT id,status FROM marketplace.seller_shop WHERE account_id=? FOR SHARE",
+                (rs, row) -> new Shop(rs.getObject("id", UUID.class), "ACTIVE".equals(rs.getString("status"))),
+                accountId).stream().findFirst();
+    }
 }

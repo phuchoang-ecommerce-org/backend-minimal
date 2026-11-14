@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.phucle.ecommerce.catalog.api.PublicCatalogReadPort;
+import com.phucle.ecommerce.catalog.api.OwnedCatalogReadPort;
+import com.phucle.ecommerce.identity.api.SellerShopDirectory;
 import com.phucle.ecommerce.inventory.api.PublicStockReadPort;
 import com.phucle.ecommerce.review.api.PublicReviewSummaryPort;
 import java.math.BigDecimal;
@@ -35,7 +37,8 @@ class DiscoveryQueryHandlerTest {
         when(inventory.findStock(any())).thenReturn(Map.of(variantId, new PublicStockReadPort.Stock(variantId, 7, 0)));
         when(reviews.summaries(any())).thenReturn(Map.of());
         var handler = new DiscoveryQueryHandler(catalog, inventory, reviews,
-                new CursorCodec("test-only-cursor-mac-secret-at-least-32-bytes"));
+                new CursorCodec("test-only-cursor-mac-secret-at-least-32-bytes"),
+                mock(OwnedCatalogReadPort.class), mock(SellerShopDirectory.class));
 
         var page = handler.products(null, null, null, null, null, 20);
         variants.clear();

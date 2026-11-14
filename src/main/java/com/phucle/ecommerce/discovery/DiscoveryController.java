@@ -2,6 +2,7 @@ package com.phucle.ecommerce.discovery;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import com.phucle.ecommerce.identity.api.CurrentActor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -10,7 +11,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 final class DiscoveryController {
     private final DiscoveryQueryPort queries;
-    DiscoveryController(DiscoveryQueryPort queries) { this.queries = queries; }
+    private final CurrentActor actor;
+    private final SellerProductWebMapper sellerProductMapper;
+    DiscoveryController(DiscoveryQueryPort queries, CurrentActor actor, SellerProductWebMapper sellerProductMapper) {
+        this.queries = queries; this.actor = actor; this.sellerProductMapper = sellerProductMapper;
+    }
 
     @GetMapping("/categories")
     DiscoveryQueryPort.Page<?> categories(@RequestParam(required = false) String cursor,
@@ -30,6 +35,11 @@ final class DiscoveryController {
 
     @GetMapping("/products/{productId}")
     DiscoveryQueryPort.Product product(@PathVariable UUID productId) { return queries.product(productId); }
+
+    @GetMapping("/seller/products/{productId}")
+    SellerProductResponse ownProduct(@PathVariable UUID productId) {
+        return sellerProductMapper.toResponse(queries.ownProduct(actor.require(), productId));
+    }
 
     private BigDecimal amount(String value) {
         if (value == null) return null;

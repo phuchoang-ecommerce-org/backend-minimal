@@ -1,6 +1,9 @@
 package com.phucle.ecommerce.discovery;
 
 import com.phucle.ecommerce.catalog.api.PublicCatalogReadPort;
+import com.phucle.ecommerce.catalog.api.OwnedCatalogReadPort;
+import com.phucle.ecommerce.identity.api.SellerShopDirectory;
+import com.phucle.ecommerce.identity.api.TrustedActor;
 import com.phucle.ecommerce.inventory.api.PublicStockReadPort;
 import com.phucle.ecommerce.review.api.PublicReviewSummaryPort;
 import com.phucle.ecommerce.shared.CursorCodec;
@@ -11,17 +14,23 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 @Service
-final class DiscoveryQueryHandler implements DiscoveryQueryPort {
+class DiscoveryQueryHandler implements DiscoveryQueryPort {
     private final PublicCatalogReadPort catalog;
     private final PublicStockReadPort inventory;
     private final PublicReviewSummaryPort reviews;
     private final CursorCodec cursors;
+    private final OwnedCatalogReadPort ownedCatalog;
+    private final SellerShopDirectory shops;
 
     DiscoveryQueryHandler(PublicCatalogReadPort catalog, PublicStockReadPort inventory,
-            PublicReviewSummaryPort reviews, CursorCodec cursors) {
+            PublicReviewSummaryPort reviews, CursorCodec cursors, OwnedCatalogReadPort ownedCatalog,
+            SellerShopDirectory shops) {
         this.catalog = catalog; this.inventory = inventory; this.reviews = reviews; this.cursors = cursors;
+        this.ownedCatalog = ownedCatalog; this.shops = shops;
     }
 
     @Override public Page<Category> categories(String cursor, int limit) {
@@ -50,6 +59,15 @@ final class DiscoveryQueryHandler implements DiscoveryQueryPort {
 
     @Override public Product product(UUID id) {
         PublicCatalogReadPort.Product core = catalog.product(id);
+        if (core == null) throw new PublicProductNotFoundException();
+        return compose(List.of(core)).getFirst();
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    @Override public Product ownProduct(TrustedActor actor, UUID id) {
+        if (actor == null || !"SELLER".equals(actor.operationalRole())) throw new SellerProductRoleDeniedException();
+        UUID shop = shops.shopIdForAccount(actor.accountId()).orElseThrow(PublicProductNotFoundException::new);
+        PublicCatalogReadPort.Product core = ownedCatalog.product(id, shop);
         if (core == null) throw new PublicProductNotFoundException();
         return compose(List.of(core)).getFirst();
     }
