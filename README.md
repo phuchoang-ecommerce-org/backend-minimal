@@ -69,6 +69,18 @@ Run these commands from this repository's root in a POSIX-compatible shell. The 
 
 ## Verify and learn more
 
+### Development seed accounts
+
+With `SPRING_PROFILES_ACTIVE=dev` and `DEV_FIXTURES_ENABLED=true`, the backend seeds these synthetic accounts in the local database:
+
+| Role | Login |
+| --- | --- |
+| Member | `synthetic.member@example.test` |
+| Seller | `synthetic.seller@example.test` |
+| Admin | `synthetic.admin@example.test` |
+
+Set `DEV_MEMBER_PASSWORD_HASH`, `DEV_SELLER_PASSWORD_HASH`, and `DEV_ADMIN_PASSWORD_HASH` in the local `.env` file to BCrypt hashes of passwords you choose. The seed requires all three hashes; it does not supply a default password. Use the corresponding plain passwords only in your local frontend environment when enabling its development account buttons. The backend currently authenticates these accounts through normal `/auth/login`.
+
 Run `./gradlew check` with Docker available to execute unit, integration, and checkout contract tests. The [disposable API rehearsal](docs/phase7-demo.md) has its own instructions and additionally requires Python 3 with PyYAML and `htpasswd`.
 
 See the [approved project documentation](../docs-minimal/README.md) for business rules, architecture, and scope, and the [OpenAPI contract](../docs-minimal/SolutionArchitecture/api-contract/openapi.yaml) for target request and response shapes.
