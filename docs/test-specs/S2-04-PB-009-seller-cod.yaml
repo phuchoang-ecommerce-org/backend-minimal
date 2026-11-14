@@ -1,0 +1,77 @@
+task_brief:
+  backlog: S2-04 / PB-009
+  use_cases: [UC-07]
+  business_rules: [BR-05, BR-08, BR-09]
+  architecture_rules: [ARCH-02, ARCH-04, ARCH-07]
+  owning_context: Ordering
+  domain: CustomerOrder.recordCod owns the pending, non-cancelled portion transition and aggregate payment derivation.
+  module_api: Identity resolves Account ID to SellerShop ID through SellerShopDirectory; Ordering owns customer_order, seller_order, and order_line; Audit appends seller COD evidence through OrderAudit.
+  command: Resolve trusted SellerShop ID, find an owned portion, lock customer_order FOR UPDATE, rehydrate all portions, transition the root, update the target portion, append audit in one READ COMMITTED transaction.
+  query: SellerShop-filtered keyset boundary query on (customer_order.created_at, seller_order.id), then batched portion and line projections in one REPEATABLE READ transaction. Input-port views remain separate from output-port rows.
+  response: 200 owned SellerOrder; list items/nextCursor/hasNext; 404 foreign/missing; 409 duplicate/cancelled; 401 Guest; 403 wrong role.
+  lock_order: customer_order root before portion reads and payment update, matching cancellation.
+  migration: none
+  files: Identity api/JDBC; Ordering application/JDBC/Web; Audit api/JDBC; SecurityConfiguration; integration test.
+  unresolved_decisions: []
+  source_sha256:
+    use_cases: 73314afa6418f2cc778fd02285caa70a329757e4c387caa22dd5d663a4ac7608
+    business_rules: 73b2e00f64e6a480320f4e13802833bdde6d2a98979db14392db37a5178159ad
+    openapi: 53573c9b88c79d793bcfd810f727ae0a571ce4bc395cb145aae2588c40eac249
+    seller_payment_sequence: 51dbb66fede6e7d797a1afbc28d8b78412c980ab2b984beb5890290d8e177373
+scenarios:
+  - id: AT-UC-07-OWNED-PAYMENT
+    given: Two pending Seller portions of one placed order, owned by different SellerShop IDs.
+    when: Each authenticated Seller marks their own portion paid.
+    then: Each response includes only its own portion; the Member sees aggregate PAID only after both; one audit per payment records actor and time.
+    test: SellerCodPostgresTest.twoSellersMarkOwnPortionsAndAggregateBecomesPaid
+  - id: AT-UC-07-OWNERSHIP-STATE
+    given: Foreign, missing, paid, and cancelled portions.
+    when: Seller marks each paid.
+    then: Foreign/missing are 404; paid/cancelled are 409; no extra audit or status change.
+    test: SellerCodPostgresTest.foreignMissingDuplicateAndCancelledAreRejected
+  - id: AT-UC-07-SUSPENDED
+    given: A suspended SellerShop with an existing order.
+    when: Its Seller records received COD cash.
+    then: Payment succeeds for the existing portion.
+    test: SellerCodPostgresTest.suspendedSellerMayRecordExistingCash
+  - id: AT-UC-07-AUDIT-ROLLBACK
+    given: An audit insert constraint fails for the target portion.
+    when: Its Seller marks the portion paid.
+    then: 500 and neither payment nor audit is committed.
+    test: SellerCodPostgresTest.auditFailureRollsBackPayment
+  - id: AT-UC-07-SELLER-PAGE
+    given: Two Sellers have interleaved portions with equal parent timestamps and private lines.
+    when: One Seller pages with a signed cursor, then tampers or reuses it as another Seller.
+    then: Every page and line remains owner-filtered; invalid/tampered/cross-owner cursors are 400; empty page is valid.
+    test: SellerCodPostgresTest.sellerPagesArePrivateAndCursorIsScoped
+  - id: AT-UC-07-CANCEL-PAYMENT-RACE
+    given: Cancellation and mark-paid run on independent PostgreSQL transactions.
+    when: They race for the same parent root lock.
+    then: Exactly one valid outcome commits; payment cannot appear on a cancelled order and stock restoration happens at most once.
+    tests:
+      - SellerCodPostgresTest.cancelWinsRootLockBeforePayment
+      - SellerCodPostgresTest.paymentWinsRootLockBeforeCancel
+  - id: AT-UC-07-TWO-SELLER-RACE
+    given: Two independent Seller HTTP commands target different portions of the same parent order.
+    when: Both start concurrently on separate PostgreSQL transactions.
+    then: Both return 200, both portions are PAID, the Member aggregate is PAID, and both audit entries commit.
+    test: SellerCodPostgresTest.twoSellersMarkConcurrentlyWithoutLostPayment
+  - id: AT-UC-07-ROLE
+    given: Guest and Member requests for Seller routes.
+    when: They list or mark a portion paid.
+    then: Guest receives 401 and Member receives 403 before Seller data lookup.
+    test: SellerCodPostgresTest.sellerPagesArePrivateAndCursorIsScoped
+evidence:
+  date: 2026-11-14
+  base_revision: 808d9a0
+  test_source_sha256: aeecfa7f37abd139c6aad91eb109cd9fea3cac8f18572125786774d74721e39e
+  red: "Focused PostgreSQL command ran 5 tests and produced 5 behavioral failures. Owner/list expected 200, foreign expected 404, audit failure expected 500; all received 403 because Seller routes were absent. Initial sandbox Gradle-cache access error was a blocker, not RED."
+  focused_green: "Expanded SellerCodPostgresTest ran 7 tests against PostgreSQL, zero failures. Two independent HTTP transactions cover the two-Seller and cancel/payment races."
+  full_green: "./gradlew check jar bootJar --console=plain --no-daemon --continue: BUILD SUCCESSFUL; 29 unit/architecture, 47 integration including 7 Phase 4, 16 checkoutRed tests; zero failures/skips; both JARs built."
+  implementation_revision: "uncommitted working tree based on 808d9a0"
+  migration: none
+  http: "200 owned mark-paid/page, 404 foreign/missing, 409 duplicate/cancelled, 400 tampered/cross-Seller cursor, 401 Guest, 403 Member, 500 audit failure with rollback."
+  method_review: "Extracted shared root rehydration from JdbcOrderWrite.lockOwned for the new Seller lock path. New application methods each own one use-case coordination or view mapping responsibility; JDBC methods isolate boundary selection, batched hydration, and writes; controller and mapper methods are cohesive transport operations. Existing OrderAudit methods and the security filter-chain assembly remained cohesive."
+  boundaries: "Ordering uses Identity SellerShopDirectory and Audit OrderAudit APIs; no Account ID is used as SellerShop ID. Ordering JDBC touches only customer_order, seller_order, order_line, and order_address_snapshot; Identity JDBC owns seller_shop, Audit JDBC owns audit_entry. Seller page uses one owner lookup plus at most three Ordering SELECTs for limit 1 or 100, and REPEATABLE READ for one consistent response."
+  blockers: []
+  next: "Phase 5 stock expectedVersion; Phase 6 should repeat race tests with timed lock-wait evidence and complete the common delivery gate before marking Sprint 2 DONE."

@@ -1,0 +1,44 @@
+task_brief:
+  backlog: S2-04 / PB-009 refactor
+  feedback: inkdrop://note/6mcdCGpu
+  use_cases: [UC-07]
+  business_rules: [BR-05, BR-08, BR-09]
+  architecture_rules: [ARCH-02, ARCH-04, ARCH-07]
+  owning_context: Ordering
+  domain: CustomerOrder transition and root lock remain unchanged.
+  module_api: Identity SellerShopDirectory already returns Optional SellerShop ID for a trusted Account ID.
+  query: Seller role check is separate from Optional shop resolution. An unprovisioned Seller gets an empty SellerOrderList without reading order tables.
+  command: An unprovisioned Seller cannot own a portion and gets RESOURCE_NOT_FOUND; existing owner/root-lock/payment/audit path remains.
+  response: GET /seller/orders never emits 404 for a valid Seller; POST mark-paid keeps foreign/missing portion 404.
+  lock_order: Both HTTP commands still acquire the same customer_order root FOR UPDATE lock before state decisions.
+  migration: none
+  files: SellerShopActor, SellerOrderQueryService, SellerCodPostgresTest, scenario evidence.
+  unresolved_decisions: []
+scenarios:
+  - id: AT-UC-07-UNPROVISIONED-SELLER
+    given: An active Seller account has no SellerShop, while other Sellers have orders.
+    when: It lists Seller orders and attempts to mark another Seller's portion paid.
+    then: List returns 200 with empty items, null cursor, false hasNext; mark-paid returns 404; no payment or audit changes.
+    test: SellerCodPostgresTest.unprovisionedSellerGetsEmptyPageAndCannotMarkForeignPortion
+  - id: AT-UC-05-07-CANCEL-FIRST
+    given: A committed two-portion order and independent PostgreSQL transactions.
+    when: Cancel HTTP command queues first for the root lock, then payment HTTP command queues second; the gate lock is released.
+    then: Cancel returns 200, payment 409; order is CANCELLED, both portions pending, stock restored once, one cancellation audit and no payment audit.
+    test: SellerCodPostgresTest.cancelWinsRootLockBeforePayment
+  - id: AT-UC-05-07-PAYMENT-FIRST
+    given: A committed two-portion order and independent PostgreSQL transactions.
+    when: Payment HTTP command queues first for the root lock, then cancel HTTP command queues second; the gate lock is released.
+    then: Payment returns 200, cancel 409; order stays PLACED with one paid portion, stock unchanged, one payment audit and no cancellation audit.
+    test: SellerCodPostgresTest.paymentWinsRootLockBeforeCancel
+evidence:
+  date: 2026-11-14
+  base_revision: 808d9a0
+  test_source_sha256: 8835e64b323d19a9f0f3b4330b9856826b370a4bab00e00d62070dad5ed6f4d4
+  red: "Focused SellerCodPostgresTest ran 9 PostgreSQL tests before the policy change: 1 behavioral failure, unprovisioned Seller list expected 200 but received 404; the two controlled lock-order tests and six existing tests passed."
+  focused_green: "Focused SellerCodPostgresTest ran 9 PostgreSQL tests, zero failures or skips."
+  full_green: "./gradlew check jar bootJar --console=plain --no-daemon --continue: BUILD SUCCESSFUL; 29 unit/architecture, 49 integration including 9 Phase 4, and 16 checkoutRed tests; zero failures/skips; both JARs built."
+  race: "Each branch uses a separate gate connection holding customer_order FOR UPDATE, queues the chosen HTTP command first, observes one then two PostgreSQL lock waiters in pg_stat_activity, releases the gate, and checks responses plus committed order, portion, stock quantity/version, and audit state through a fresh connection. No sleep or mock lock."
+  method_review: "SellerShopActor.requireShopId was split into role validation and Optional SellerShop resolution. The list query treats absence as an empty page and rejects a cursor without a shop; the payment command maps absence to owned-portion 404. SellerOrderQueryService.page remains one query use case; RecordCodPaymentService.execute remains one command use case. Other assigned methods were already cohesive."
+  boundaries: "Identity still owns the SellerShop lookup; Ordering application has no SQL and its read/write ports remain separate. No migration or new cross-module table access."
+  implementation_revision: "uncommitted working tree based on 808d9a0"
+  unresolved_decisions: []
