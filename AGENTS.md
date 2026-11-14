@@ -32,3 +32,9 @@ Do not treat an Account ID as a SellerShop ID. Enforce JWT signature/issuer/audi
 ## Coordination
 
 The coordinator owns integration and shared build/configuration. Assign agents explicit write paths; reviewers are read-only unless given a specific follow-up. Do not have two agents write the same file or lockfile. The standard handoff records changed files, scenario-to-test traceability, RED/GREEN evidence, actual test results, unresolved decisions, and integration notes.
+
+## Benchmark workflow
+
+- Use `$ecp-benchmark-evidence` for phased API/load/SQL/stress/profiling/JMH work. The approved source is `../docs-minimal/SolutionArchitecture/backend/5-benchmark/`; numerical matrices are in `docs/benchmark/`.
+- Assign `benchmark-executor` one phase and exclusive benchmark script, result, and matrix paths after the phase entry gate is met. Assign `benchmark-auditor` an independent read-only evidence review. The coordinator resolves findings and owns shared configuration.
+- Keep unmeasured results `NOT_RUN`. Run B0 only after the real PostgreSQL correctness gate on a disposable database; use later phases only when evidence triggers them. Do not run stress or destructive fixture reset on production or shared data.
