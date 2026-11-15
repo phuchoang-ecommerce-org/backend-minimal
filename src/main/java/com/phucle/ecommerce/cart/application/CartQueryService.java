@@ -39,7 +39,7 @@ public class CartQueryService implements CartQueries, GuestCartProjection {
         for (var line:snapshot.lines()) {
             var offer=current.get(line.variantId());
             if (offer==null) throw new IllegalStateException("Stored cart variant is missing");
-            lines.add(new CartView.Line(line.variantId(),line.quantity(),offer.priceUsd().toPlainString()));
+            lines.add(new CartView.Line(line.variantId(),line.quantity(),offer.priceUsd().toPlainString(),offer.productName(),offer.variantLabel()));
             total=total.add(offer.priceUsd().multiply(BigDecimal.valueOf(line.quantity())));
         }
         return new CartView(lines,total.setScale(2).toPlainString(),snapshot.version());

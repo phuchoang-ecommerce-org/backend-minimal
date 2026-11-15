@@ -17,13 +17,13 @@ class JdbcCartOfferReadAdapter implements CartOfferReadPort {
         if (ids.isEmpty()) return Map.of();
         Map<UUID, Offer> result = new HashMap<>();
         jdbc.query("""
-                SELECT v.id,v.price_usd,(p.published AND s.status='ACTIVE') AS purchasable
+                SELECT v.id,v.price_usd,(p.published AND s.status='ACTIVE') AS purchasable,p.title,v.label
                 FROM marketplace.variant v JOIN marketplace.product p ON p.id=v.product_id
                 JOIN marketplace.seller_shop s ON s.id=p.seller_id
                 WHERE v.id IN (:ids)
                 """, new MapSqlParameterSource("ids", ids), r -> {
                     UUID id = r.getObject(1, UUID.class);
-                    result.put(id, new Offer(id, r.getBigDecimal(2), r.getBoolean(3)));
+                    result.put(id, new Offer(id, r.getBigDecimal(2), r.getBoolean(3), r.getString(4), r.getString(5)));
                 });
         return Map.copyOf(result);
     }

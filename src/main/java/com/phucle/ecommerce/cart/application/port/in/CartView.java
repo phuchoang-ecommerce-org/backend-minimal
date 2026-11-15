@@ -5,5 +5,5 @@ import java.util.UUID;
 
 public record CartView(List<Line> lines, String totalUsd, long version) {
     public CartView { lines = List.copyOf(lines); }
-    public record Line(UUID variantId, int quantity, String unitPriceUsd) {}
+    public record Line(UUID variantId, int quantity, String unitPriceUsd, String productName, String variantLabel) {}
 }

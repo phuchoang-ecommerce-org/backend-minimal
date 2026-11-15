@@ -146,7 +146,7 @@ public class CartCommandService implements CartCommands, MergeGuestCartOnLogin {
         for (var line:cart.lines()) {
             var offer=current.get(line.variantId());
             if (offer==null) throw new IllegalStateException("Stored cart variant is missing");
-            lines.add(new CartView.Line(line.variantId(),line.quantity().value(),offer.priceUsd().toPlainString()));
+            lines.add(new CartView.Line(line.variantId(),line.quantity().value(),offer.priceUsd().toPlainString(),offer.productName(),offer.variantLabel()));
             total=total.add(offer.priceUsd().multiply(java.math.BigDecimal.valueOf(line.quantity().value())));
         }
         return new CartView(lines,total.setScale(2).toPlainString(),cart.version());
