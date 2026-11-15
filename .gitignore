@@ -49,3 +49,4 @@ out/
 
 # Local B0 fixture data contains disposable credentials and generated SQL
 docs/benchmark/scripts/generated/
+docs/benchmark/results/
