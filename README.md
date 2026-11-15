@@ -12,7 +12,7 @@ The current implementation covers the 18 operations used by the [backend API dem
 | Member | Register, log in, merge a guest cart on login, manage addresses, place cash-on-delivery (COD) orders, view order history and details, and cancel eligible orders. |
 | Seller | View owned products and orders, update stock with version checks, and record receipt of COD cash for owned orders. |
 
-Checkout includes stock checks and idempotent order placement. Authentication uses signed JWTs with role and ownership checks. The approved [API contract](../docs-minimal/SolutionArchitecture/api-contract/index.md) describes the broader target; its full 38-operation scope is **not** implemented here. There is no payment gateway or shipping workflow.
+Checkout includes stock checks and idempotent order placement. Authentication uses signed JWTs with role and ownership checks. The approved [API contract](https://github.com/phuchoang-ecommerce-org/docs-minimal/blob/main/SolutionArchitecture/api-contract/index.md) describes the broader target; its full 38-operation scope is **not** implemented here. There is no payment gateway or shipping workflow.
 
 ## Built with
 
@@ -80,4 +80,4 @@ These credentials are public development fixtures. The backend hashes the passwo
 
 Run `./gradlew check` with Docker available to execute unit, integration, and checkout contract tests. The [disposable API rehearsal](docs/phase7-demo.md) has its own instructions and additionally requires Python 3 with PyYAML and `htpasswd`.
 
-See the [approved project documentation](../docs-minimal/README.md) for business rules, architecture, and scope, and the [OpenAPI contract](../docs-minimal/SolutionArchitecture/api-contract/openapi.yaml) for target request and response shapes.
+See the [approved project documentation](https://github.com/phuchoang-ecommerce-org/docs-minimal/blob/main/README.md) for business rules, architecture, and scope, and the [OpenAPI contract](https://github.com/phuchoang-ecommerce-org/docs-minimal/blob/main/SolutionArchitecture/api-contract/openapi.yaml) for target request and response shapes.
