@@ -1,0 +1,46 @@
+{
+  "lsp": {
+    "jdtls": {
+      "settings": {
+        "java_home": "/Library/Java/JavaVirtualMachines/jdk-25.jdk/Contents/Home",
+        "lombok_support": true,
+
+        "data_directory": "~/.cache/zed/jdtls",
+
+        "initialization_options": {
+          "settings": {
+            "java": {
+              "configuration": {
+                "updateBuildConfiguration": "automatic"
+              },
+
+              "import": {
+                "gradle": {
+                  "enabled": true,
+                  "wrapper": {
+                    "enabled": true
+                  }
+                },
+
+                "maven": {
+                  "enabled": false
+                }
+              },
+
+              "autobuild": {
+                "enabled": true
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "gradle-language-server": {
+      "settings": {
+        "java_home": "/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home",
+        "gradleWrapperEnabled": true
+      }
+    }
+  }
+}

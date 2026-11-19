@@ -39,9 +39,6 @@ out/
 ### System ###
 .DS_Store
 
-### Zed editor ###
-.zed/
-
 # Local runtime secrets and developer fixture hashes
 .env
 .env.*
